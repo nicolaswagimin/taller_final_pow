@@ -1,18 +1,43 @@
-# Preconteo: nginx (round-robin, sin sticky) → app ×8 → redis (un nodo, sin persistencia).
+# Preconteo: nginx (round-robin, sin sticky) → app ×8 → redis (un nodo, AOF en volumen).
+# Orden de arranque: redis (healthy) → semilla (termina OK) → app ×8 → nginx.
 services:
   redis:
     image: redis:7-alpine
     command:
       - redis-server
-      - --save
-      - ""
       - --appendonly
-      - "no"
+      - "yes"
+      - --appendfsync
+      - everysec        # pierde como máximo ~1 s de escrituras si el proceso muere
+      - --save
+      - ""              # sin RDB periódico: la durabilidad la da el AOF
       - --maxmemory
       - 512mb
       - --maxmemory-policy
-      - noeviction   # nunca descartar acumulados en silencio
+      - noeviction      # nunca descartar acumulados en silencio
+    volumes:
+      - redis-datos:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 2s
+      timeout: 2s
+      retries: 15
     restart: unless-stopped
+
+  # Un solo uso: carga el catálogo (idempotente) antes de que arranquen las instancias.
+  # Usa la etapa "build" del Dockerfile, que tiene tsx y scripts/ para `npm run semilla`.
+  semilla:
+    build:
+      context: .
+      target: build
+    image: preconteo-semilla
+    command: ["npm", "run", "semilla"]
+    environment:
+      REDIS_URL: redis://redis:6379
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: "no"
 
   app:
     build: .
@@ -24,7 +49,10 @@ services:
       REDIS_URL: redis://redis:6379
       PORT: "3000"
     depends_on:
-      - redis
+      redis:
+        condition: service_healthy
+      semilla:
+        condition: service_completed_successfully
     ulimits:
       nofile:
         soft: 65535
@@ -44,3 +72,6 @@ services:
         soft: 65535
         hard: 65535
     restart: unless-stopped
+
+volumes:
+  redis-datos:
