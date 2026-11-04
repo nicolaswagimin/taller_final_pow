@@ -68,7 +68,7 @@
 <div class="contenedor">
   <header>
     <h1>Tablero de métricas</h1>
-    <div id="estado" role="status">Cargando…</div>
+    <output id="estado">Cargando…</output>
   </header>
 
   <div class="kpis" id="kpis"></div>
@@ -76,7 +76,7 @@
   <h2>Por instancia</h2>
   <div class="tabla-envoltura">
     <table>
-      <thead id="cabecera"></thead>
+      <thead id="cabecera"><tr><th scope="col">Instancia</th></tr></thead>
       <tbody id="filas"></tbody>
       <tfoot id="pie"></tfoot>
     </table>
@@ -88,7 +88,7 @@
     <summary>Otras métricas reportadas</summary>
     <div class="tabla-envoltura" style="margin-top:.5rem">
       <table>
-        <thead id="cabecera-extra"></thead>
+        <thead id="cabecera-extra"><tr><th scope="col">Instancia</th></tr></thead>
         <tbody id="filas-extra"></tbody>
       </table>
     </div>
@@ -102,7 +102,7 @@ const HISTORIA = 60; // 60 lecturas × 2 s = 2 min
 
 // Nombres que reporta cada módulo con ctx.metricas.* — si un módulo usa otro nombre, aparece
 // igual en "Otras métricas". Las tasas (/s) se calculan para cualquier contador que encaje.
-const ES_MENSAJES = (k) => /(^|_)mensajes(_|$)|emitidos$/.test(k);   // ws_mensajes_emitidos, sse_mensajes_emitidos…
+const ES_MENSAJES = (k) => /(?:(?:^|_)mensajes(?:_|$))|(?:emitidos$)/.test(k);   // ws_mensajes_emitidos, sse_mensajes_emitidos…
 const ES_RECONEXION = (k) => /^reconexiones/.test(k);
 const LAT_P50 = (k) => /^lat/.test(k) && /p50/.test(k);                  // lat_pub_p50_ms (P2)
 const LAT_P99 = (k) => /^lat/.test(k) && /p99/.test(k);
@@ -139,7 +139,7 @@ function tasa(inst, m, filtro) {
   const ant = anteriores.get(inst);
   if (!ant) return null;
   const dt = (Number(m.ts) - ant.ts) / 1000;
-  if (!(dt > 0)) return null;
+  if (!Number.isFinite(dt) || dt <= 0) return null;
   let delta = 0;
   let hay = false;
   for (const [k, v] of Object.entries(m)) {
@@ -310,20 +310,28 @@ function pintarTabla(fs, t) {
   $('filas').replaceChildren(...fs.map((f) => {
     const fila = document.createElement('tr');
     fila.append(celda('td', f.nombre));
-    for (const [, cols] of COLUMNAS) for (const [, k, d] of cols) fila.append(celda('td', fmt(f[k], d), k === 'edad' && f.edad > 5 ? 'vieja' : ''));
+    for (const [, cols] of COLUMNAS) {
+      for (const [, k, d] of cols) fila.append(celda('td', fmt(f[k], d), k === 'edad' && f.edad > 5 ? 'vieja' : ''));
+    }
     return fila;
   }));
   const pie = document.createElement('tr');
   pie.append(celda('td', `Total (${fs.length})`));
   const tot = { sse: t.sse, ws: t.ws, polling: t.polling, total: t.con, msg: t.msg, rec: t.rec, eld50: t.eld50, eld99: t.eld,
                 eldMax: t.eldMax, rss: t.rss, kbCon: t.mem, actas: t.actas, lat50: t.lat50, lat99: t.lat, edad: null };
-  for (const [, cols] of COLUMNAS) for (const [, k, d] of cols) pie.append(celda('td', fmt(tot[k], d)));
+  for (const [, cols] of COLUMNAS) {
+    for (const [, k, d] of cols) pie.append(celda('td', fmt(tot[k], d)));
+  }
   $('pie').replaceChildren(pie);
 }
 
 function pintarExtra(instancias, nombres) {
   const extra = new Set();
-  for (const n of nombres) for (const k of Object.keys(instancias[n])) if (!BASE.has(k)) extra.add(k);
+  for (const n of nombres) {
+    for (const k of Object.keys(instancias[n])) {
+      if (!BASE.has(k)) extra.add(k);
+    }
+  }
   const columnas = [...extra].sort();
   const tr = document.createElement('tr');
   tr.append(celda('th', 'Instancia'), ...columnas.map((c) => celda('th', c)));

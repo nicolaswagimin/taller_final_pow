@@ -57,6 +57,10 @@ systemctl restart docker
 rm -rf "$DIR"
 git clone --depth 1 --branch "$RAMA" "$REPO_URL" "$DIR"
 cd "$DIR"
-docker compose up -d --build
+# El docker de AL2023 no trae buildx y `docker compose up --build` exige buildx ≥ 0.17.
+# Se construye la imagen con `docker build` (preconteo-app, la misma de docker-compose.yml)
+# y compose solo la arranca.
+docker build -t preconteo-app .
+docker compose up -d
 docker compose ps
 echo "Listo: http://$(curl -s http://checkip.amazonaws.com)/tablero.html"

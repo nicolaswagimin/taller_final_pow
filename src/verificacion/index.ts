@@ -466,7 +466,7 @@ export function montarVerificacion(
   async function latido(c: Conexion, activo: boolean): Promise<void> {
     // Solo se renueva si hubo teclado o mouse en los últimos 10 min (lo decide la consola).
     // Si no, el lock vence solo en ≤ lockMs y el caso vuelve a la cola.
-    for (const acta of [...c.actas.keys()]) {
+    for (const acta of Array.from(c.actas.keys())) {
       const sigue = activo
         ? await renovarLock(redis, acta, c.valor, op.lockMs)
         : (await redis.get(claves.lock(acta))) === c.valor; // sin renovar: solo mirar si sigue
@@ -527,7 +527,9 @@ export function montarVerificacion(
   wss.on('headers', (headers) => headers.push(`X-Instancia: ${instancia}`));
 
   registrarUpgrade(server, RUTA_WS_VERIFICACION, (req: IncomingMessage, socket: Duplex, head: Buffer) => {
-    const auditor = new URL(req.url ?? '/', 'http://x').searchParams.get('auditor') ?? '';
+    // Solo la query: no hace falta armar una URL absoluta para leer ?auditor=.
+    const consulta = (req.url ?? '').split('?', 2)[1] ?? '';
+    const auditor = new URLSearchParams(consulta).get('auditor') ?? '';
     if (!RE_AUDITOR.test(auditor)) {
       socket.write('HTTP/1.1 400 Bad Request\r\nConnection: close\r\nContent-Length: 0\r\n\r\n');
       socket.destroy();

@@ -25,14 +25,16 @@ Nombre: `preconteo-sg`.
 
 - **Name:** `preconteo`
 - **AMI:** Amazon Linux 2023 (x86_64). Si eliges ARM, usa `t4g.medium`; el script sirve para ambas.
-- **Instance type:** `t3.medium` (2 vCPU, 4 GB)
+- **Instance type:** `c7i-flex.large` (2 vCPU, 4 GB). En cuentas del **plan gratuito** `t3.medium` no está
+  permitido; `c7i-flex.large` es *Apto para la capa gratuita* y se paga con los créditos (≈ 0,085 USD/h).
 - **Key pair:** crear o elegir uno (para SSH).
 - **Network settings → Select existing security group:** `preconteo-sg`. *Auto-assign public IP*: Enable.
 - **Storage:** 8–16 GB gp3 es suficiente.
 - **Advanced details:**
-  - **Credit specification:** **Standard** (¡no Unlimited! Unlimited cobra créditos extra bajo carga).
+  - **Credit specification:** solo aparece con tipos `t3`/`t4g`: **Standard** (¡no Unlimited!). `c7i-flex` no la tiene.
   - **User data:** pegar el contenido completo de [`user-data.sh`](user-data.sh).
-    Ajustar `REPO_URL` si el repo cambia.
+    Ajustar `REPO_URL` si el repo cambia y `RAMA` si se despliega una rama distinta de `main`.
+    (AL2023 no trae `buildx`: el script construye con `docker build` y luego `docker compose up -d`.)
 - *Launch instance*.
 
 ## 3. Verificar
@@ -51,7 +53,7 @@ Si algo falla: `ssh -i llave.pem ec2-user@$IP` y `sudo tail -f /var/log/preconte
 Para actualizar a lo último de `main`:
 
 ```bash
-cd /opt/preconteo && sudo git pull && sudo docker compose up -d --build
+cd /opt/preconteo && sudo git pull && sudo docker build -t preconteo-app . && sudo docker compose up -d --force-recreate
 ```
 
 ## 4. Terminar (obligatorio después de la sustentación)
