@@ -7,7 +7,7 @@
 --   4 tot:mesa:{mesa}    5 tot:pue:{p}        6 tot:mun:{m}       7 tot:dep
 --   8 rank:pue:{p}       9 rank:mun:{m}      10 rank:dep
 --  11 ev:mun:{m}        12 ev:dep           13 pub:mun:{m}      14 pub:dep
---  15 cola:verif
+--  15 cola:verif      16 cat:total:dep (para distinguir "mesa inexistente" de "catálogo sin cargar")
 -- ARGV
 --   1 acta (JSON, contrato 4.1)   2 ts_recibido (ms)   3 origen ("jurado" | "auditor")
 --   4 motivo de la corrección ("" si no hay)   5 candidatos (JSON array)
@@ -50,7 +50,11 @@ end
 
 -- Catálogo: la mesa existe y su puesto/municipio coinciden
 local cat = redis.call('HMGET', KEYS[3], 'puesto', 'municipio')
-if not cat[1] then return invalida('mesa_inexistente') end
+if not cat[1] then
+  -- Sin catálogo (Redis reiniciado sin semilla) la culpa no es del acta: 503 y el jurado reintenta.
+  if redis.call('EXISTS', KEYS[16]) == 0 then return cjson.encode({ estado = 'no_disponible' }) end
+  return invalida('mesa_inexistente')
+end
 if tonumber(cat[1]) ~= a.puesto or tonumber(cat[2]) ~= a.municipio then
   return invalida('mesa_no_coincide')
 end

@@ -226,6 +226,14 @@ describe('validación (sin escribir nada)', () => {
   });
 });
 
+describe('catálogo ausente (Redis reiniciado sin semilla)', () => {
+  it('no culpa al acta: no_disponible (503) en vez de invalida, para que el jurado reintente', async () => {
+    await redis.flushdb();
+    expect(await aplicar(nuevaActa(mesa, 1, VOTOS))).toEqual({ estado: 'no_disponible' });
+    expect(await redis.dbsize()).toBe(0);
+  });
+});
+
 function chunk(xs: string[]): Array<[string, string]> {
   const out: Array<[string, string]> = [];
   for (let i = 0; i < xs.length; i += 2) out.push([xs[i]!, xs[i + 1]!]);

@@ -38,6 +38,7 @@ export function clavesDe(a: Pick<Acta, 'idem' | 'acta' | 'mesa' | 'puesto' | 'mu
     claves.pubMun(a.municipio),
     claves.pubDep(),
     claves.colaVerif(),
+    claves.catTotalDep(),
   ];
 }
 
