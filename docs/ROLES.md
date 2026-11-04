@@ -222,6 +222,6 @@ Si falta tiempo se recorta, en este orden: comparación de transportes, cliente 
 
 1. **Ningún contrato de la sección 4 se cambia sin un PR que actualice `docs/DISEÑO.md`** en el mismo
    PR y con la etiqueta `contrato`. Avisar a las otras dos personas antes de abrirlo.
-2. `main` está protegida: todo entra por **PR con 1 aprobación**, de un dueño según `.github/CODEOWNERS`.
+2. `main` está protegida: todo entra por **PR con 1 aprobación de otra persona del grupo**. `.github/CODEOWNERS` pide la revisión al dueño de cada carpeta automáticamente, pero su aprobación no es obligatoria (si lo fuera, nadie podría aprobar un PR que solo toca carpetas propias).
 3. Cada quien trabaja en su rama (`p1-jurados`, `p2-publico`, `p3-verificacion`) y solo en sus carpetas.
 4. Antes de abrir el PR: `npm run build && npm test` y `docker compose up -d --build` en local.
