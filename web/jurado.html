@@ -1,8 +1,380 @@
 <!doctype html>
 <html lang="es">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Jurado — transmisión de actas</title></head>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Jurado — transmisión de actas</title>
+<!-- DUEÑO: Persona 1. Sin frameworks. Cola en localStorage (RT-6), idem por envío (RF-1). -->
+<style>
+  :root { --borde: #d9dce1; --tenue: #5f6672; --ok: #11703a; --aviso: #8a5a00; --mal: #a3141f; --info: #1d4ed8; }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 16px/1.45 system-ui, -apple-system, sans-serif; color: #15181d; background: #f6f7f9; }
+  header { background: #15181d; color: #fff; padding: .75rem 1rem; display: flex; justify-content: space-between; align-items: center; gap: .5rem; }
+  header h1 { font-size: 1.05rem; margin: 0; }
+  #red { font-size: .85rem; padding: .15rem .55rem; border-radius: 999px; background: #1f7a45; }
+  #red.offline { background: var(--mal); }
+  main { max-width: 760px; margin: 0 auto; padding: 1rem; display: grid; gap: 1rem; }
+  section { background: #fff; border: 1px solid var(--borde); border-radius: 10px; padding: 1rem; }
+  h2 { font-size: 1rem; margin: 0 0 .75rem; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: .6rem .75rem; }
+  label { display: grid; gap: .2rem; font-size: .85rem; color: var(--tenue); }
+  input { font: inherit; padding: .45rem .55rem; border: 1px solid var(--borde); border-radius: 6px; min-width: 0; color: inherit; }
+  input:focus-visible, button:focus-visible { outline: 2px solid var(--info); outline-offset: 1px; }
+  fieldset { border: 0; padding: 0; margin: .75rem 0 0; }
+  legend { font-size: .85rem; font-weight: 600; margin-bottom: .4rem; }
+  #cuadre { margin-top: .6rem; font-size: .9rem; }
+  #cuadre.mal { color: var(--aviso); }
+  .acciones { display: flex; gap: .5rem; align-items: center; margin-top: .9rem; flex-wrap: wrap; }
+  button { font: inherit; padding: .5rem .9rem; border-radius: 6px; border: 1px solid var(--borde); background: #fff; cursor: pointer; }
+  button.primario { background: #15181d; color: #fff; border-color: #15181d; }
+  #idActa { font-family: ui-monospace, monospace; font-size: .9rem; color: var(--tenue); }
+  .resumen { display: flex; gap: .5rem; flex-wrap: wrap; margin-bottom: .75rem; font-size: .85rem; }
+  .resumen span { background: #f0f1f4; border-radius: 6px; padding: .2rem .5rem; }
+  ol { list-style: none; margin: 0; padding: 0; display: grid; gap: .5rem; }
+  li { border: 1px solid var(--borde); border-radius: 8px; padding: .55rem .7rem; display: grid; gap: .15rem; }
+  .fila { display: flex; justify-content: space-between; gap: .5rem; align-items: baseline; flex-wrap: wrap; }
+  .acta { font-family: ui-monospace, monospace; font-size: .9rem; }
+  .det { font-size: .8rem; color: var(--tenue); overflow-wrap: anywhere; }
+  .estado { font-size: .78rem; font-weight: 600; padding: .1rem .5rem; border-radius: 999px; text-transform: uppercase; letter-spacing: .02em; white-space: nowrap; }
+  .e-pendiente { background: #fff4d6; color: var(--aviso); }
+  .e-enviando  { background: #e8eefc; color: var(--info); }
+  .e-contada   { background: #dcf3e5; color: var(--ok); }
+  .e-duplicada { background: #e3f0ea; color: var(--ok); }
+  .e-obsoleta  { background: #eceef1; color: var(--tenue); }
+  .e-dudosa    { background: #ffe9d1; color: #8f3b00; }
+  .e-rechazada, .e-invalida { background: #fde2e4; color: var(--mal); }
+  .vacio { color: var(--tenue); font-size: .9rem; }
+</style>
+</head>
 <body>
-  <h1>Jurado — transmisión de actas</h1>
-  <p>Pendiente — dueño: <strong>Persona 1</strong>.</p>
+<header>
+  <h1>Transmisión de actas E-14</h1>
+  <span id="red" role="status" aria-live="polite">en línea</span>
+</header>
+<main>
+  <section aria-labelledby="t-form">
+    <h2 id="t-form">Nueva acta</h2>
+    <form id="form" autocomplete="off" novalidate>
+      <div class="grid">
+        <label>Jurado <input name="jurado" required placeholder="JUR-88134" maxlength="64"></label>
+        <label>Municipio <input name="municipio" type="number" min="1" required inputmode="numeric"></label>
+        <label>Puesto <input name="puesto" type="number" min="1" required inputmode="numeric"></label>
+        <label>Mesa (id) <input name="mesa" type="number" min="1" required inputmode="numeric"></label>
+        <label>N.º de mesa en el puesto <input name="numero" type="number" min="1" max="9999" required inputmode="numeric"></label>
+        <label>Versión <input name="version" type="number" min="1" value="1" required inputmode="numeric"></label>
+      </div>
+      <fieldset>
+        <legend>Votos</legend>
+        <div class="grid" id="votos"></div>
+      </fieldset>
+      <div class="grid" style="margin-top:.6rem">
+        <label>Sufragantes <input name="sufragantes" type="number" min="0" required inputmode="numeric"></label>
+        <label>Foto del acta (opcional) <input name="foto" type="file" accept="image/*" capture="environment"></label>
+      </div>
+      <div id="cuadre" aria-live="polite"></div>
+      <div class="acciones">
+        <button class="primario" type="submit">Guardar y enviar</button>
+        <span id="idActa"></span>
+      </div>
+    </form>
+  </section>
+
+  <section aria-labelledby="t-cola">
+    <h2 id="t-cola">Mis actas</h2>
+    <div class="resumen" id="resumen"></div>
+    <ol id="lista"></ol>
+    <div class="acciones">
+      <button type="button" id="reintentar">Reintentar ahora</button>
+      <button type="button" id="limpiar">Quitar finalizadas</button>
+    </div>
+  </section>
+</main>
+
+<script>
+'use strict';
+const CANDIDATOS = ['C1', 'C2', 'C3', 'BLANCO', 'NULO', 'NO_MARCADO'];
+const CLAVE_COLA = 'preconteo.jurado.cola.v1';
+const CLAVE_JURADO = 'preconteo.jurado.id';
+const POLLING_MS = 15000;
+const TIMEOUT_MS = 10000;
+const BACKOFF_BASE_MS = 1000, BACKOFF_MAX_MS = 30000;
+
+// Estados de un acta en la cola:
+//  pendiente  → aún sin respuesta definitiva del servidor (incluye 503, 429, red caída o sin respuesta)
+//  contada    → 201 registrada: suma          duplicada → 200: el servidor ya la tenía (misma respuesta original)
+//  obsoleta   → 200: ya hay una versión mayor  dudosa    → 202: no suma; en verificación (se consulta cada 15 s)
+//  rechazada  → un auditor la rechazó          invalida  → 400: hay que corregirla y enviar de nuevo
+// "Enviada" = confirmada por el servidor (cualquiera de contada/duplicada/obsoleta/dudosa/rechazada).
+// Nunca se marca como enviada sin una respuesta 2xx del servidor.
+const CONFIRMADAS = new Set(['contada', 'duplicada', 'obsoleta', 'dudosa', 'rechazada']);
+const A_CONSULTAR = (it) => it.estado === 'dudosa' || (it.estado === 'duplicada' && it.respuesta && it.respuesta.motivo);
+
+const $ = (s) => document.querySelector(s);
+const form = $('#form');
+let cola = cargar();
+const enVuelo = new Set();
+let procesando = false;
+let temporizador = null;
+
+// ---------- almacenamiento ----------
+function cargar() {
+  try { return JSON.parse(localStorage.getItem(CLAVE_COLA)) || []; } catch { return []; }
+}
+function guardar() { localStorage.setItem(CLAVE_COLA, JSON.stringify(cola)); }
+
+// ---------- utilidades ----------
+function hexAleatorio(bytes) {
+  const b = new Uint8Array(bytes);
+  crypto.getRandomValues(b); // funciona también en http:// (randomUUID y subtle exigen https)
+  return Array.from(b, (x) => x.toString(16).padStart(2, '0')).join('');
+}
+function esperaConJitter(intento) {
+  // full jitter: random(0, min(30 s, 1 s × 2^intento))
+  return Math.random() * Math.min(BACKOFF_MAX_MS, BACKOFF_BASE_MS * 2 ** intento);
+}
+async function hashFoto(archivo) {
+  if (!archivo) return 'sin-foto';
+  const datos = new Uint8Array(await archivo.arrayBuffer());
+  if (crypto.subtle) {
+    const h = new Uint8Array(await crypto.subtle.digest('SHA-256', datos));
+    return Array.from(h, (x) => x.toString(16).padStart(2, '0')).join('');
+  }
+  // http:// sin crypto.subtle: FNV-1a de 32 bits (identificador, no criptográfico)
+  let h = 0x811c9dc5;
+  for (const x of datos) { h ^= x; h = Math.imul(h, 0x01000193) >>> 0; }
+  return 'fnv1a-' + h.toString(16).padStart(8, '0') + '-' + datos.length;
+}
+const idActa = (puesto, numero) => `E14-${puesto}-${String(numero).padStart(4, '0')}-03`;
+const hora = (ms) => new Date(ms).toLocaleTimeString();
+
+// ---------- formulario ----------
+const contVotos = $('#votos');
+for (const c of CANDIDATOS) {
+  const l = document.createElement('label');
+  l.textContent = c;
+  const i = document.createElement('input');
+  Object.assign(i, { name: 'v_' + c, type: 'number', min: 0, required: true, inputMode: 'numeric' });
+  l.append(i);
+  contVotos.append(l);
+}
+form.jurado.value = localStorage.getItem(CLAVE_JURADO) || '';
+
+function leerFormulario() {
+  const n = (k) => form[k].value === '' ? NaN : Number(form[k].value);
+  const votos = Object.fromEntries(CANDIDATOS.map((c) => [c, n('v_' + c)]));
+  return { jurado: form.jurado.value.trim(), municipio: n('municipio'), puesto: n('puesto'), mesa: n('mesa'),
+           numero: n('numero'), version: n('version'), sufragantes: n('sufragantes'), votos };
+}
+function actualizarAyudas() {
+  const f = leerFormulario();
+  $('#idActa').textContent = Number.isInteger(f.puesto) && Number.isInteger(f.numero) ? idActa(f.puesto, f.numero) : '';
+  const suma = CANDIDATOS.reduce((a, c) => a + (Number.isFinite(f.votos[c]) ? f.votos[c] : 0), 0);
+  const el = $('#cuadre');
+  if (!Number.isFinite(f.sufragantes)) { el.textContent = `Suma de votos: ${suma}`; el.className = ''; return; }
+  const ok = suma === f.sufragantes;
+  el.textContent = ok ? `Cuadra: ${suma} votos = ${f.sufragantes} sufragantes`
+                      : `No cuadra: ${suma} votos ≠ ${f.sufragantes} sufragantes. Si la envía así quedará como dudosa.`;
+  el.className = ok ? '' : 'mal';
+}
+form.addEventListener('input', actualizarAyudas);
+
+form.addEventListener('submit', async (ev) => {
+  ev.preventDefault();
+  const f = leerFormulario();
+  const enteros = ['municipio', 'puesto', 'mesa', 'numero', 'version', 'sufragantes'];
+  const malo = !f.jurado || enteros.some((k) => !Number.isInteger(f[k]) || f[k] < (k === 'sufragantes' ? 0 : 1))
+            || CANDIDATOS.some((c) => !Number.isInteger(f.votos[c]) || f.votos[c] < 0);
+  if (malo) { form.reportValidity(); return; }
+  localStorage.setItem(CLAVE_JURADO, f.jurado);
+
+  const acta = {
+    acta: idActa(f.puesto, f.numero), mesa: f.mesa, puesto: f.puesto, municipio: f.municipio,
+    version: f.version, jurado: f.jurado, ts_cierre: Math.floor(Date.now() / 1000),
+    votos: f.votos, sufragantes: f.sufragantes, hash_foto: await hashFoto(form.foto.files[0]),
+    idem: hexAleatorio(8), // se genera UNA vez por envío; todos los reintentos reutilizan este idem
+  };
+  cola.unshift({ idem: acta.idem, acta, estado: 'pendiente', intentos: 0, siguiente: 0,
+                 creada: Date.now(), respuesta: null, nota: 'en cola' });
+  guardar();
+  // Deja jurado/municipio/puesto para la siguiente mesa; limpia votos.
+  for (const c of CANDIDATOS) form['v_' + c].value = '';
+  form.sufragantes.value = ''; form.foto.value = ''; form.version.value = 1;
+  actualizarAyudas();
+  render();
+  procesar();
+});
+
+// ---------- envío ----------
+async function enviar(it) {
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort(), TIMEOUT_MS);
+  try {
+    const r = await fetch('/api/actas', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(it.acta), signal: ctrl.signal,
+    });
+    let cuerpo = null;
+    try { cuerpo = await r.json(); } catch { /* sin cuerpo JSON */ }
+    return { status: r.status, cuerpo, retryAfter: Number(r.headers.get('retry-after')) };
+  } catch {
+    return { status: 0, cuerpo: null }; // red caída o sin respuesta: NO se sabe si llegó
+  } finally {
+    clearTimeout(t);
+  }
+}
+
+function reprogramar(it, ms, nota) {
+  it.estado = 'pendiente';
+  it.intentos += 1;
+  it.siguiente = Date.now() + ms;
+  it.nota = `${nota} · reintento ${hora(it.siguiente)}`;
+}
+
+function aplicarRespuesta(it, { status, cuerpo, retryAfter }) {
+  const e = cuerpo && cuerpo.estado;
+  if (status === 201 && e === 'registrada') {
+    Object.assign(it, { estado: 'contada', respuesta: cuerpo, nota: `enviada ${hora(Date.now())} · seq ${cuerpo.seq}` });
+  } else if (status === 200 && e === 'duplicada') {
+    const previa = cuerpo.motivo ? 'estaba como dudosa' : `ya contaba (seq ${cuerpo.seq ?? '—'})`;
+    Object.assign(it, { estado: 'duplicada', respuesta: cuerpo, nota: `enviada · el servidor ya la tenía: ${previa}` });
+  } else if (status === 200 && e === 'obsoleta') {
+    Object.assign(it, { estado: 'obsoleta', respuesta: cuerpo, nota: `enviada · ya hay una versión mayor (v${cuerpo.version_vigente})` });
+  } else if (status === 202 && e === 'dudosa') {
+    Object.assign(it, { estado: 'dudosa', respuesta: cuerpo, nota: `enviada · en verificación: ${cuerpo.motivo}` });
+  } else if (status === 400) {
+    Object.assign(it, { estado: 'invalida', respuesta: cuerpo, nota: `rechazada por el servidor: ${(cuerpo && cuerpo.motivo) || 'datos inválidos'}` });
+  } else if (status === 429) {
+    const ms = (Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter : 30) * 1000;
+    reprogramar(it, ms, 'límite de envíos por minuto');
+    it.intentos -= 1; // el 429 no cuenta para el backoff
+  } else if (status === 503) {
+    reprogramar(it, esperaConJitter(it.intentos), 'servidor sin datos disponibles (503), sigue pendiente');
+  } else if (status === 0) {
+    reprogramar(it, esperaConJitter(it.intentos), navigator.onLine ? 'sin respuesta, sigue pendiente' : 'sin conexión, sigue pendiente');
+  } else {
+    reprogramar(it, esperaConJitter(it.intentos), `respuesta inesperada (${status}), sigue pendiente`);
+  }
+}
+
+async function procesar() {
+  if (procesando) return;
+  procesando = true;
+  clearTimeout(temporizador);
+  try {
+    for (;;) {
+      const ahora = Date.now();
+      const it = cola.find((x) => x.estado === 'pendiente' && x.siguiente <= ahora && !enVuelo.has(x.idem));
+      if (!it) break;
+      if (!navigator.onLine) break; // se reanuda con el evento 'online'
+      enVuelo.add(it.idem);
+      render();
+      const r = await enviar(it);
+      enVuelo.delete(it.idem);
+      aplicarRespuesta(it, r);
+      guardar();
+      render();
+    }
+  } finally {
+    procesando = false;
+  }
+  const prox = cola.filter((x) => x.estado === 'pendiente').map((x) => x.siguiente);
+  if (prox.length && navigator.onLine) {
+    temporizador = setTimeout(procesar, Math.max(0, Math.min(...prox) - Date.now()));
+  }
+}
+
+// ---------- polling de dudosas (cada 15 s) ----------
+async function consultarDudosas() {
+  if (!navigator.onLine) return;
+  for (const it of cola.filter(A_CONSULTAR)) {
+    try {
+      const r = await fetch(`/api/actas/${encodeURIComponent(it.acta.acta)}/estado`, { cache: 'no-store' });
+      if (!r.ok) continue;
+      const s = await r.json();
+      if (s.estado === 'contada' && s.version_vigente >= it.acta.version) {
+        it.estado = 'contada';
+        it.nota = s.version_vigente > it.acta.version
+          ? `verificada: cuenta la versión ${s.version_vigente} corregida por un auditor` : 'verificada: cuenta';
+      } else if (s.estado === 'rechazada') {
+        it.estado = 'rechazada';
+        it.nota = `rechazada en verificación${s.motivo ? ': ' + s.motivo : ''}`;
+      } else if (s.version_vigente > it.acta.version) {
+        it.nota = `en verificación (vigente: v${s.version_vigente})`;
+      }
+    } catch { /* se reintenta en 15 s */ }
+  }
+  guardar();
+  render();
+}
+setInterval(consultarDudosas, POLLING_MS);
+
+// ---------- red ----------
+function actualizarRed() {
+  const el = $('#red');
+  el.textContent = navigator.onLine ? 'en línea' : 'sin conexión';
+  el.classList.toggle('offline', !navigator.onLine);
+}
+window.addEventListener('online', () => {
+  actualizarRed();
+  // Al recuperar la red se envía de inmediato; si vuelve a fallar se reanuda el backoff desde cero.
+  for (const it of cola) if (it.estado === 'pendiente') { it.siguiente = 0; it.intentos = 0; }
+  guardar();
+  procesar();
+  consultarDudosas();
+});
+window.addEventListener('offline', () => { actualizarRed(); render(); });
+
+$('#reintentar').addEventListener('click', () => {
+  for (const it of cola) if (it.estado === 'pendiente') it.siguiente = 0;
+  procesar();
+});
+$('#limpiar').addEventListener('click', () => {
+  cola = cola.filter((x) => x.estado === 'pendiente' || A_CONSULTAR(x));
+  guardar();
+  render();
+});
+
+// ---------- vista ----------
+function render() {
+  const cuenta = (f) => cola.filter(f).length;
+  const resumen = [
+    ['Pendientes', cuenta((x) => x.estado === 'pendiente')],
+    ['Enviadas', cuenta((x) => CONFIRMADAS.has(x.estado))],
+    ['Contadas', cuenta((x) => x.estado === 'contada')],
+    ['Dudosas', cuenta((x) => x.estado === 'dudosa')],
+  ];
+  $('#resumen').replaceChildren(...resumen.map(([k, v]) => {
+    const s = document.createElement('span'); s.textContent = `${k}: ${v}`; return s;
+  }));
+
+  const lista = $('#lista');
+  if (cola.length === 0) {
+    const p = document.createElement('p'); p.className = 'vacio'; p.textContent = 'Todavía no hay actas.';
+    lista.replaceChildren(p);
+    return;
+  }
+  lista.replaceChildren(...cola.map((it) => {
+    const li = document.createElement('li');
+    const fila = document.createElement('div'); fila.className = 'fila';
+    const a = document.createElement('span'); a.className = 'acta';
+    a.textContent = `${it.acta.acta} · v${it.acta.version}`;
+    const vuelo = enVuelo.has(it.idem);
+    const e = document.createElement('span');
+    e.className = 'estado e-' + (vuelo ? 'enviando' : it.estado);
+    e.textContent = vuelo ? 'enviando…' : it.estado;
+    fila.append(a, e);
+    const d = document.createElement('div'); d.className = 'det';
+    d.textContent = `${it.nota || ''} · idem ${it.idem}`;
+    li.append(fila, d);
+    return li;
+  }));
+}
+
+actualizarRed();
+actualizarAyudas();
+render();
+procesar();
+consultarDudosas();
+</script>
 </body>
 </html>
