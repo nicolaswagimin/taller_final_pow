@@ -12,6 +12,7 @@ export class RedisMock extends EventEmitter {
 
   constructor() {
     super();
+    RedisMock.pubsubEmitter.setMaxListeners(100);
     RedisMock.pubsubEmitter.on('message', (chan: string, msg: string) => {
       this.emit('message', chan, msg);
     });
