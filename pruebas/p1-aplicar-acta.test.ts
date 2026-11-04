@@ -106,6 +106,56 @@ describe('RF-2: gana la versión mayor', () => {
   });
 });
 
+describe('RF-2: _informadas no depende del orden (informada ⇔ versión vigente contada)', () => {
+  const c1 = { C1: 10, C2: 20, C3: 30, BLANCO: 1, NULO: 1, NO_MARCADO: 1 };
+  const c3 = { C1: 11, C2: 19, C3: 30, BLANCO: 1, NULO: 1, NO_MARCADO: 1 };
+  const versiones: Record<number, () => ReturnType<typeof nuevaActa>> = {
+    1: () => nuevaActa(mesa, 1, c1), // contada
+    2: () => ({ ...nuevaActa(mesa, 2, c1), sufragantes: 999 }), // dudosa
+    3: () => nuevaActa(mesa, 3, c3), // contada
+  };
+  const permutaciones = (xs: number[]): number[][] =>
+    xs.length <= 1 ? [xs] : xs.flatMap((x, i) => permutaciones([...xs.slice(0, i), ...xs.slice(i + 1)]).map((p) => [x, ...p]));
+  const totales = async () => {
+    const salida: Record<string, Record<string, string>> = {};
+    for (const k of await redis.keys('tot:*')) salida[k] = await redis.hgetall(k);
+    return salida;
+  };
+  async function correr(orden: number[]) {
+    await limpiar();
+    for (const v of orden) await aplicar(versiones[v]!());
+    return totales();
+  }
+
+  it.each([
+    ['{v1 contada, v2 dudosa, v3 contada}', [1, 2, 3], '1'],
+    ['{v1 contada, v2 dudosa}', [1, 2], '0'],
+  ])('todas las permutaciones de %s dejan tot:* idéntico', async (_n, conjunto, informadasFinal) => {
+    const perms = permutaciones(conjunto as number[]);
+    const resultados = [];
+    for (const p of perms) resultados.push({ p: p.join(','), tot: await correr(p) });
+    for (const r of resultados) expect({ p: r.p, tot: r.tot }).toEqual({ p: r.p, tot: resultados[0]!.tot });
+    for (const k of ['tot:mesa:' + mesa.mesa, 'tot:pue:' + mesa.puesto, 'tot:mun:' + mesa.municipio, 'tot:dep']) {
+      expect(resultados[0]!.tot[k]?._informadas).toBe(informadasFinal);
+    }
+  });
+
+  it('contada → dudosa resta 1 a _informadas en los 4 niveles y el evento lleva informadas=-1', async () => {
+    await aplicar(versiones[1]!());
+    await aplicar(versiones[2]!());
+    for (const k of ['tot:mesa:' + mesa.mesa, 'tot:pue:' + mesa.puesto, 'tot:mun:' + mesa.municipio, 'tot:dep']) {
+      expect(await redis.hget(k, '_informadas')).toBe('0');
+    }
+    const [ultimo] = await redis.xrevrange('ev:dep', '+', '-', 'COUNT', 1);
+    expect(Object.fromEntries(chunk(ultimo![1]))).toMatchObject({ tipo: 'reversion', informadas: '-1' });
+    // y al volver a contar, +1
+    await aplicar(versiones[3]!());
+    expect(await redis.hget('tot:dep', '_informadas')).toBe('1');
+    const [otro] = await redis.xrevrange('ev:dep', '+', '-', 'COUNT', 1);
+    expect(Object.fromEntries(chunk(otro![1]))).toMatchObject({ tipo: 'aplicada', informadas: '1' });
+  });
+});
+
 describe('RF-3 y sección 4.6: eventos', () => {
   it('escribe ev:mun:{m} y ev:dep con el mismo id (= seq) y los campos exactos', async () => {
     const r = (await aplicar(nuevaActa(mesa, 1, VOTOS))) as { seq: string };
@@ -186,7 +236,8 @@ describe('regla contable: dudosas', () => {
     const r = await aplicar(a);
     expect(r).toMatchObject({ estado: 'dudosa', acta: a.acta, version: 1 });
     expect((r as { motivo: string }).motivo).toMatch(/descuadre/);
-    expect(await redis.exists('tot:dep')).toBe(0);
+    const dep = await redis.hgetall('tot:dep');
+    expect(Object.values(dep).every((x) => x === '0')).toBe(true); // no suma (campos en 0)
     expect(await redis.zscore('cola:verif', a.acta)).toBe('7');
     expect(await redis.hget(`acta:${a.acta}`, 'estado')).toBe('dudosa');
     expect(await redis.xlen('ev:dep')).toBe(0);

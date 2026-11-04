@@ -148,8 +148,11 @@ export interface EventoCambio {
   puesto: number;
   municipio: number;
   delta: Delta;
-  /** 1 si es la primera vez que la mesa informa, 0 si no */
-  informadas: 0 | 1;
+  /**
+   * Variación de mesas informadas (una mesa está informada ⇔ su versión vigente está contada):
+   * 1 si la mesa pasa a contar, -1 si deja de contar (reversión), 0 si no cambia (corrección).
+   */
+  informadas: -1 | 0 | 1;
   /** ms */
   ts_recibido: number;
   /** texto si es corrección */

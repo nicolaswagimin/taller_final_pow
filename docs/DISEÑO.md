@@ -140,7 +140,7 @@ hash tags; lo anotamos como restricción.)
 | `cat:total:dep`, `cat:total:mun:{m}`, `cat:total:pue:{p}` | STRING | P1 | número de mesas del nivel |
 | `idem:{idem}` | STRING | P1 | JSON de la respuesta original. `EX 86400`. Si expira antes del reintento, la comparación de versiones de `acta:*` sigue evitando el doble conteo |
 | `acta:{acta}` | HASH | P1 | `version`, `estado`, `votos` (JSON), `mesa`, `puesto`, `municipio`, `jurado` |
-| `tot:dep`, `tot:mun:{m}`, `tot:pue:{p}`, `tot:mesa:{mesa}` | HASH | P1 escribe, P2 lee | candidato → votos; campo `_informadas` = mesas informadas |
+| `tot:dep`, `tot:mun:{m}`, `tot:pue:{p}`, `tot:mesa:{mesa}` | HASH | P1 escribe, P2 lee | candidato → votos; campo `_informadas` = mesas informadas (mesas cuya versión vigente está contada) |
 | `rank:dep`, `rank:mun:{m}`, `rank:pue:{p}` | ZSET | P1 escribe, P2 lee | candidato → votos (ranking con `ZREVRANGE`, sin recorrer) |
 | `ev:dep`, `ev:mun:{m}` | STREAM | P1 escribe (dentro del Lua), P2 lee | historial de cambios, `XADD ... MAXLEN ~ 2000` (dep: `~ 10000`). El id del stream es el `seq` |
 | `pub:mun:{m}`, `pub:dep` | canal pub/sub | P1 publica, P2 suscribe | mensaje = id del stream recién escrito (solo **aviso**; la memoria es el stream) |
@@ -161,10 +161,13 @@ desde la app, un lector podría ver el municipio actualizado y el puesto todaví
 2. Leer `acta:{acta}.version`. Si `nueva <= vigente` → `obsoleta` (o `duplicada` si es igual). Así el
    resultado depende solo del conjunto de actas: **gana siempre la versión mayor**, sin importar el orden.
 3. Si no cuadra la regla contable → guardar el acta con `estado=dudosa`, `ZADD cola:verif`; si había una
-   versión contada anterior, se revierte (pasa a no sumar) y se emite el evento. Responder `dudosa`.
+   versión contada anterior, se revierte (pasa a no sumar), `HINCRBY _informadas -1` en los cuatro
+   niveles y se emite el evento `reversion` con `informadas=-1`. Responder `dudosa`.
 4. Si no: restar los votos de la versión anterior (si estaba contada) y sumar los nuevos con `HINCRBY` y
-   `ZINCRBY` en mesa, puesto, municipio y departamento; si es la primera vez que la mesa informa,
-   `HINCRBY _informadas 1` en los cuatro niveles.
+   `ZINCRBY` en mesa, puesto, municipio y departamento; si la versión anterior **no** estaba contada
+   (primera vez o venía de dudosa), `HINCRBY _informadas 1` en los cuatro niveles.
+   Regla: **una mesa está informada si y solo si su versión vigente está contada**, así `_informadas`
+   tampoco depende del orden de llegada (RF-2).
 5. `XADD ev:mun:{m}` y `XADD ev:dep` con el evento (4.6); `PUBLISH` de los avisos.
 6. `SET idem:{idem} <respuesta> EX 86400`. Devolver `registrada` con `seq`.
 
@@ -177,7 +180,7 @@ Entrada del stream `ev:mun:{m}` (campos de texto):
 
 ```
 tipo=aplicada|correccion|reversion   acta=E14-...   version=2   mesa=4201   puesto=176   municipio=11
-delta={"C1":-3,"C2":+5}   informadas=1|0   ts_recibido=<ms>   motivo=<texto si es corrección>
+delta={"C1":-3,"C2":+5}   informadas=-1|0|1   ts_recibido=<ms>   motivo=<texto si es corrección>
 ```
 
 Lo que recibe el público por SSE (un mensaje por **ventana de 2 s** y por tópico, nunca uno por acta):
@@ -190,6 +193,8 @@ data: {"topico":"mun:11","seq":"1730000000000-0","delta":{"C1":180,"C2":92},
        "informadas":12,"total_mesas":160,"correcciones":[{"acta":"E14-...","motivo":"..."}]}
 ```
 
+- `informadas` del stream es la **variación** de mesas informadas: `1` (la mesa pasa a contar), `-1`
+  (reversión: deja de contar) o `0` (corrección de una mesa que ya contaba).
 - `correcciones` es la explicación obligatoria cuando un número baja ("el número nunca retrocede sin explicación").
 - `snapshot`: `{ topico, seq, totales, ranking, informadas, total_mesas }`; se envía al conectar sin cursor,
   si el cursor ya salió de la ventana del stream, o a un cliente lento al ponerse al día (RF-9).

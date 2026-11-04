@@ -1,5 +1,6 @@
 -- aplicar_acta.lua — DUEÑO: Persona 1 (secciones 4.3–4.6 de docs/DISEÑO.md).
 -- Una sola ejecución atómica: Redis no intercala otros comandos mientras corre.
+-- Invariante: _informadas = número de mesas cuya versión vigente está contada (no depende del orden).
 -- No hay rollback: TODO se valida antes de la primera escritura.
 --
 -- KEYS (todas las claves y canales llegan desde src/jurados/script.ts, construidos con claves.ts)
@@ -126,10 +127,17 @@ if suma ~= a.sufragantes then
   motivoActa = 'descuadre: suma(votos)=' .. suma .. ' sufragantes=' .. a.sufragantes
   redis.call('ZADD', KEYS[15], math.abs(suma - a.sufragantes), a.acta)
   if contadaPrev then
+    -- Deja de estar informada: la mesa solo cuenta como informada si su versión vigente está contada
     local delta = {}
     for _, c in ipairs(candidatos) do delta[c] = -(votosPrev[c] or 0) end
     aplicarDelta(delta)
-    emitir('reversion', delta, 0, motivoActa)
+    for _, k in ipairs(niveles_tot) do redis.call('HINCRBY', k, '_informadas', -1) end
+    emitir('reversion', delta, -1, motivoActa)
+  else
+    -- Sin versión contada previa: no suma, pero deja los niveles con la misma forma (campos en 0)
+    -- que una reversión, para que tot:* no dependa del orden de llegada.
+    aplicarDelta({})
+    for _, k in ipairs(niveles_tot) do redis.call('HINCRBY', k, '_informadas', 0) end
   end
   respuesta = { estado = 'dudosa', acta = a.acta, version = a.version, motivo = motivoActa }
 else
@@ -139,8 +147,9 @@ else
   local delta = {}
   for _, c in ipairs(candidatos) do delta[c] = a.votos[c] - (votosPrev[c] or 0) end
   aplicarDelta(delta)
-  local primera = redis.call('HEXISTS', KEYS[4], '_informadas') == 0
-  if primera then
+  -- Pasa a estar informada solo si antes no estaba contada (primera vez o venía de dudosa)
+  local nuevaInformada = not contadaPrev
+  if nuevaInformada then
     for _, k in ipairs(niveles_tot) do redis.call('HINCRBY', k, '_informadas', 1) end
   end
   local tipo, motivoEv = 'aplicada', ARGV[4]
@@ -149,7 +158,7 @@ else
     if motivoEv == '' then motivoEv = 'correccion v' .. vPrev .. ' -> v' .. a.version end
   end
   -- 5. Stream + avisos
-  local seq = emitir(tipo, delta, primera and 1 or 0, motivoEv)
+  local seq = emitir(tipo, delta, nuevaInformada and 1 or 0, motivoEv)
   redis.call('ZREM', KEYS[15], a.acta)
   respuesta = { estado = 'registrada', acta = a.acta, version = a.version, seq = seq }
 end
