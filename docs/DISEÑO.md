@@ -203,7 +203,7 @@ Cliente → servidor: `{"t":"tomar","acta":...}`, `{"t":"latido","activo":true|f
 
 Servidor → cliente: `{"t":"cola","items":[...]}`, `{"t":"tomado","acta":...,"auditor":...}`,
 `{"t":"liberado","acta":...}`, `{"t":"resuelto","acta":...}`, `{"t":"presencia","auditores":[...]}`,
-`{"t":"error","motivo":"ya_tomado"|"no_eres_dueno"}`.
+`{"t":"error","motivo":"ya_tomado"|"no_eres_dueno"|"redis_caido"}`.
 
 Al **aprobar** un acta dudosa con valores corregidos, P3 la reaplica llamando al mismo `aplicar_acta`
 (versión siguiente, `idem` nuevo) — así toda escritura de acumulados pasa por un solo lugar.

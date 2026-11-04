@@ -489,6 +489,8 @@ export class GestorSse {
       const p99 = todasLatencias[Math.floor(todasLatencias.length * 0.99)];
       this.metricas.registrar('latencia_sse_p50_ms', p50);
       this.metricas.registrar('latencia_sse_p99_ms', p99);
+      this.metricas.registrar('lat_p50_ms', p50);
+      this.metricas.registrar('lat_p99_ms', p99);
     }
   }
 

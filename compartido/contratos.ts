@@ -234,7 +234,7 @@ export interface AuditorPresente extends Presencia {
   auditor: string;
 }
 
-export type MotivoErrorWs = 'ya_tomado' | 'no_eres_dueno';
+export type MotivoErrorWs = 'ya_tomado' | 'no_eres_dueno' | 'redis_caido';
 
 export type WsServidorCliente =
   | { t: 'cola'; items: ItemColaVerif[] }
