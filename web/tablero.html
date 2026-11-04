@@ -5,67 +5,357 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Tablero de métricas</title>
 <style>
-  body { font: 14px/1.4 system-ui, sans-serif; margin: 1.5rem; color: #1a1a1a; }
-  h1 { font-size: 1.25rem; margin: 0 0 .25rem; }
-  #estado { color: #666; margin-bottom: 1rem; }
-  #estado.error { color: #b00020; }
-  table { border-collapse: collapse; font-variant-numeric: tabular-nums; }
-  th, td { padding: .3rem .6rem; border-bottom: 1px solid #e5e5e5; text-align: right; white-space: nowrap; }
-  th:first-child, td:first-child { text-align: left; }
-  thead th { position: sticky; top: 0; background: #fafafa; font-weight: 600; }
-  tbody tr:hover { background: #f5f7fa; }
+  /* Sección 7 / RT-7 de docs/DISEÑO.md. Lee GET /api/metricas cada 2 s (met:{instancia}). */
+  :root {
+    color-scheme: light;
+    --fondo: #f6f7f9; --superficie: #fcfcfb; --texto: #0b0b0b; --texto-2: #52514e; --texto-3: #7a7974;
+    --borde: #e4e3df; --grid: #ecebe7; --serie: #2a78d6; --serie-area: rgba(42, 120, 214, .10);
+    --mal: #b42318; --mal-fondo: #fdecea; --aviso: #8a5a00; --aviso-fondo: #fff4d6;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:where(:not([data-theme="light"])) {
+      color-scheme: dark;
+      --fondo: #111110; --superficie: #1a1a19; --texto: #f0efec; --texto-2: #c3c2b7; --texto-3: #8f8e86;
+      --borde: #2c2c2a; --grid: #262624; --serie: #3987e5; --serie-area: rgba(57, 135, 229, .16);
+      --mal: #ff6b5e; --mal-fondo: #34140f; --aviso: #f0b429; --aviso-fondo: #2e2410;
+    }
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --fondo: #111110; --superficie: #1a1a19; --texto: #f0efec; --texto-2: #c3c2b7; --texto-3: #8f8e86;
+    --borde: #2c2c2a; --grid: #262624; --serie: #3987e5; --serie-area: rgba(57, 135, 229, .16);
+    --mal: #ff6b5e; --mal-fondo: #34140f; --aviso: #f0b429; --aviso-fondo: #2e2410;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--fondo); color: var(--texto); font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  .contenedor { max-width: 1320px; margin: 0 auto; padding: 1.25rem 1rem 2rem; }
+  header { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; gap: .5rem 1rem; margin-bottom: 1rem; }
+  h1 { font-size: 1.15rem; margin: 0; }
+  h2 { font-size: .8rem; text-transform: uppercase; letter-spacing: .06em; color: var(--texto-2); margin: 1.5rem 0 .6rem; font-weight: 600; }
+  #estado { color: var(--texto-2); font-variant-numeric: tabular-nums; }
+  #estado.error { color: var(--mal); font-weight: 600; }
+  .kpis { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: .75rem; }
+  .tile { background: var(--superficie); border: 1px solid var(--borde); border-radius: 10px; padding: .85rem .9rem .6rem; min-width: 0; }
+  .tile .nombre, .tile .detalle { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .tile .nombre { color: var(--texto-2); font-size: .8rem; font-weight: 600; }
+  .tile .valor { font-size: 1.7rem; font-weight: 650; letter-spacing: -.02em; font-variant-numeric: tabular-nums; margin: .1rem 0 0; }
+  .tile .valor small { font-size: .85rem; font-weight: 500; color: var(--texto-2); margin-left: .2rem; }
+  .tile .detalle { color: var(--texto-3); font-size: .78rem; font-variant-numeric: tabular-nums; min-height: 1.1em; }
+  .tile.sin-datos .valor { color: var(--texto-3); }
+  .spark { position: relative; height: 44px; margin-top: .4rem; }
+  .spark svg { display: block; width: 100%; height: 100%; overflow: visible; }
+  .spark .linea { fill: none; stroke: var(--serie); stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+  .spark .area { fill: var(--serie-area); stroke: none; }
+  .spark .base { stroke: var(--grid); stroke-width: 1; }
+  .spark .guia { stroke: var(--texto-3); stroke-width: 1; stroke-dasharray: 2 2; }
+  .spark .punto { fill: var(--serie); stroke: var(--superficie); stroke-width: 2; }
+  .tooltip { position: absolute; top: -2rem; transform: translateX(-50%); background: var(--texto); color: var(--superficie); font-size: .75rem; padding: .15rem .45rem; border-radius: 5px; white-space: nowrap; pointer-events: none; font-variant-numeric: tabular-nums; }
+  .tabla-envoltura { overflow-x: auto; background: var(--superficie); border: 1px solid var(--borde); border-radius: 10px; }
+  table { border-collapse: collapse; font-variant-numeric: tabular-nums; width: 100%; }
+  th, td { padding: .45rem .65rem; border-bottom: 1px solid var(--grid); text-align: right; white-space: nowrap; }
+  th:first-child, td:first-child { text-align: left; position: sticky; left: 0; background: var(--superficie); }
+  thead th { color: var(--texto-2); font-size: .75rem; font-weight: 600; vertical-align: bottom; }
+  thead tr.grupo th { border-bottom: 0; padding-bottom: 0; color: var(--texto-3); font-weight: 500; text-align: center; }
+  tbody tr:last-child td { border-bottom: 0; }
+  tfoot td { font-weight: 650; border-top: 1px solid var(--borde); border-bottom: 0; }
+  .vieja { color: var(--aviso); }
+  .nota { color: var(--texto-3); font-size: .8rem; margin-top: .5rem; }
+  details { margin-top: 1rem; }
+  summary { cursor: pointer; color: var(--texto-2); font-weight: 600; }
 </style>
 </head>
 <body>
-<h1>Tablero de métricas</h1>
-<div id="estado">Cargando…</div>
-<table>
-  <thead id="cabecera"></thead>
-  <tbody id="filas"></tbody>
-</table>
+<div class="contenedor">
+  <header>
+    <h1>Tablero de métricas</h1>
+    <div id="estado" role="status">Cargando…</div>
+  </header>
+
+  <div class="kpis" id="kpis"></div>
+
+  <h2>Por instancia</h2>
+  <div class="tabla-envoltura">
+    <table>
+      <thead id="cabecera"></thead>
+      <tbody id="filas"></tbody>
+      <tfoot id="pie"></tfoot>
+    </table>
+  </div>
+  <p class="nota">Cada instancia escribe <code>met:{instancia}</code> cada 2 s (EX 10). Las tasas por segundo salen
+    de la diferencia entre dos lecturas de los contadores. Las líneas muestran los últimos 2 minutos.</p>
+
+  <details>
+    <summary>Otras métricas reportadas</summary>
+    <div class="tabla-envoltura" style="margin-top:.5rem">
+      <table>
+        <thead id="cabecera-extra"></thead>
+        <tbody id="filas-extra"></tbody>
+      </table>
+    </div>
+  </details>
+</div>
+
 <script>
-  // Columnas fijas primero; cualquier métrica nueva que reporte un módulo aparece después.
-  const FIJAS = ['con_sse', 'con_ws', 'con_polling', 'con_total', 'rss_mb', 'rss_por_conexion_kb',
-                 'eld_p50_ms', 'eld_p99_ms', 'eld_max_ms', 'uptime_s'];
-  const OCULTAS = new Set(['instancia', 'ts']);
-  const estado = document.getElementById('estado');
-  const cabecera = document.getElementById('cabecera');
-  const filas = document.getElementById('filas');
+'use strict';
+const INTERVALO_MS = 2000;
+const HISTORIA = 60; // 60 lecturas × 2 s = 2 min
 
-  function celda(tag, texto) { const c = document.createElement(tag); c.textContent = texto; return c; }
+// Nombres que reporta cada módulo con ctx.metricas.* — si un módulo usa otro nombre, aparece
+// igual en "Otras métricas". Las tasas (/s) se calculan para cualquier contador que encaje.
+const ES_MENSAJES = (k) => /(^|_)mensajes(_|$)|emitidos$/.test(k);   // ws_mensajes_emitidos, sse_mensajes_emitidos…
+const ES_RECONEXION = (k) => /^reconexiones/.test(k);
+const LAT_P50 = (k) => /^lat/.test(k) && /p50/.test(k);                  // lat_pub_p50_ms (P2)
+const LAT_P99 = (k) => /^lat/.test(k) && /p99/.test(k);
+const BASE = new Set(['instancia', 'ts', 'uptime_s', 'con_sse', 'con_ws', 'con_polling', 'con_total', 'rss_mb',
+  'rss_por_conexion_kb', 'eld_p50_ms', 'eld_p99_ms', 'eld_max_ms', 'actas_por_min']);
 
-  async function actualizar() {
-    try {
-      const r = await fetch('/api/metricas', { cache: 'no-store' });
-      if (!r.ok) throw new Error('HTTP ' + r.status);
-      const { instancias } = await r.json();
-      const nombres = Object.keys(instancias).sort();
-      const extra = new Set();
-      for (const n of nombres) for (const k of Object.keys(instancias[n]))
-        if (!FIJAS.includes(k) && !OCULTAS.has(k)) extra.add(k);
-      const columnas = [...FIJAS, ...[...extra].sort()];
+const $ = (id) => document.getElementById(id);
+const num = (x) => (x === undefined || x === null || x === '' || !Number.isFinite(Number(x)) ? null : Number(x));
+const fmt = (x, d = 0) => (x === null ? '–' : Number(x).toLocaleString('es-CO', { maximumFractionDigits: d, minimumFractionDigits: d }));
 
-      const trh = document.createElement('tr');
-      trh.append(celda('th', 'instancia'), ...columnas.map(c => celda('th', c)), celda('th', 'edad (s)'));
-      cabecera.replaceChildren(trh);
+const anteriores = new Map(); // instancia → { ts, contadores }
+const historia = new Map();   // kpi → número[]
 
-      const ahora = Date.now();
-      filas.replaceChildren(...nombres.map(n => {
-        const m = instancias[n];
-        const tr = document.createElement('tr');
-        tr.append(celda('td', n), ...columnas.map(c => celda('td', m[c] ?? '–')),
-                  celda('td', ((ahora - Number(m.ts)) / 1000).toFixed(1)));
-        return tr;
-      }));
-      estado.className = '';
-      estado.textContent = `${nombres.length} instancias · actualizado ${new Date().toLocaleTimeString()}`;
-    } catch (e) {
-      estado.className = 'error';
-      estado.textContent = 'Sin datos: ' + e.message;
+const KPIS = [
+  { id: 'con', nombre: 'Conexiones abiertas', unidad: '', d: 0 },
+  { id: 'msg', nombre: 'Mensajes emitidos', unidad: '/s', d: 1 },
+  { id: 'eld', nombre: 'Retraso del Event Loop p99', unidad: 'ms', d: 1 },
+  { id: 'mem', nombre: 'Memoria por conexión', unidad: 'KB', d: 1 },
+  { id: 'actas', nombre: 'Actas por minuto', unidad: '', d: 0 },
+  { id: 'lat', nombre: 'Recepción→publicación p99', unidad: 'ms', d: 0 },
+  { id: 'rec', nombre: 'Reconexiones', unidad: '/s', d: 1 },
+  { id: 'locks', nombre: 'Actas en verificación (locks)', unidad: '', d: 0 },
+];
+
+function celda(tag, texto, clase) {
+  const c = document.createElement(tag);
+  c.textContent = texto;
+  if (clase) c.className = clase;
+  return c;
+}
+
+/** Tasa por segundo de los contadores que cumplen `filtro`, desde la lectura anterior. */
+function tasa(inst, m, filtro) {
+  const ant = anteriores.get(inst);
+  if (!ant) return null;
+  const dt = (Number(m.ts) - ant.ts) / 1000;
+  if (!(dt > 0)) return null;
+  let delta = 0;
+  let hay = false;
+  for (const [k, v] of Object.entries(m)) {
+    if (!filtro(k)) continue;
+    hay = true;
+    const antes = ant.contadores[k];
+    if (antes !== undefined && Number(v) >= antes) delta += Number(v) - antes; // si reinició, se descarta
+  }
+  return hay ? delta / dt : null;
+}
+
+function primero(m, filtro) {
+  for (const [k, v] of Object.entries(m)) if (filtro(k)) return num(v);
+  return null;
+}
+
+function derivar(nombre, m) {
+  const fila = {
+    nombre,
+    sse: num(m.con_sse) ?? 0, ws: num(m.con_ws) ?? 0, polling: num(m.con_polling) ?? 0,
+    total: num(m.con_total) ?? 0,
+    msg: tasa(nombre, m, ES_MENSAJES),
+    rec: tasa(nombre, m, ES_RECONEXION),
+    eld50: num(m.eld_p50_ms), eld99: num(m.eld_p99_ms), eldMax: num(m.eld_max_ms),
+    rss: num(m.rss_mb), kbCon: num(m.rss_por_conexion_kb),
+    actas: num(m.actas_por_min),
+    lat50: primero(m, LAT_P50), lat99: primero(m, LAT_P99),
+    locks: num(m.locks_activos),
+    edad: (Date.now() - Number(m.ts)) / 1000,
+  };
+  const contadores = {};
+  for (const [k, v] of Object.entries(m)) if (num(v) !== null) contadores[k] = Number(v);
+  anteriores.set(nombre, { ts: Number(m.ts), contadores });
+  return fila;
+}
+
+const suma = (fs, k) => (fs.some((f) => f[k] !== null) ? fs.reduce((a, f) => a + (f[k] ?? 0), 0) : null);
+const maximo = (fs, k) => (fs.some((f) => f[k] !== null) ? Math.max(...fs.filter((f) => f[k] !== null).map((f) => f[k])) : null);
+
+function totales(fs) {
+  const rssTotal = suma(fs, 'rss');
+  const conTotal = suma(fs, 'total');
+  return {
+    con: conTotal, sse: suma(fs, 'sse'), ws: suma(fs, 'ws'), polling: suma(fs, 'polling'),
+    msg: suma(fs, 'msg'), rec: suma(fs, 'rec'),
+    eld: maximo(fs, 'eld99'), eld50: maximo(fs, 'eld50'), eldMax: maximo(fs, 'eldMax'),
+    mem: conTotal ? (rssTotal * 1024) / conTotal : null, rss: rssTotal,
+    actas: suma(fs, 'actas'),
+    lat: maximo(fs, 'lat99'), lat50: maximo(fs, 'lat50'),
+    locks: maximo(fs, 'locks'), // mismo valor global en todas las instancias
+  };
+}
+
+function detalleKpi(id, t, n) {
+  switch (id) {
+    case 'con': return `SSE ${fmt(t.sse)} · WS ${fmt(t.ws)} · polling ${fmt(t.polling)}`;
+    case 'msg': return `suma de ${n} instancias`;
+    case 'eld': return t.eld === null ? '' : `peor instancia · p50 ${fmt(t.eld50, 1)} · máx ${fmt(t.eldMax, 1)} ms`;
+    case 'mem': return t.rss === null ? '' : `RSS total ${fmt(t.rss, 0)} MB`;
+    case 'actas': return 'ventana deslizante de 60 s';
+    case 'lat': return t.lat === null ? 'sin datos aún (lat_*_p50/p99 de P2)' : `peor instancia · p50 ${fmt(t.lat50, 0)} ms`;
+    case 'rec': return 'clientes SSE que vuelven';
+    case 'locks': return 'auditores con un caso tomado';
+    default: return '';
+  }
+}
+
+// --- Sparkline: una serie, sin leyenda (el título la nombra), con hover -------
+function sparkline(contenedor, datos, k) {
+  const W = 200, H = 44, pad = 3;
+  const valores = datos.filter((v) => v !== null);
+  contenedor.replaceChildren();
+  if (valores.length < 2) return;
+  const max = Math.max(...valores, 0) || 1;
+  const x = (i) => (i / (HISTORIA - 1)) * W;
+  const y = (v) => H - pad - (v / max) * (H - 2 * pad);
+  const desde = HISTORIA - datos.length;
+  let d = '';
+  let primerX = null, ultimoX = 0;
+  datos.forEach((v, i) => {
+    if (v === null) return;
+    const px = x(desde + i), py = y(v);
+    d += (d ? 'L' : 'M') + px.toFixed(1) + ',' + py.toFixed(1);
+    primerX ??= px;
+    ultimoX = px;
+  });
+  const ns = 'http://www.w3.org/2000/svg';
+  const svg = document.createElementNS(ns, 'svg');
+  svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
+  svg.setAttribute('preserveAspectRatio', 'none');
+  svg.setAttribute('role', 'img');
+  svg.setAttribute('aria-label', `${k.nombre}: últimos 2 minutos, máximo ${fmt(max, k.d)} ${k.unidad}`);
+  const mk = (tag, attrs) => { const n = document.createElementNS(ns, tag); for (const a in attrs) n.setAttribute(a, attrs[a]); svg.append(n); return n; };
+  mk('line', { class: 'base', x1: 0, x2: W, y1: H - pad, y2: H - pad, 'vector-effect': 'non-scaling-stroke' });
+  mk('path', { class: 'area', d: `${d}L${ultimoX},${H - pad}L${primerX},${H - pad}Z` });
+  mk('path', { class: 'linea', d, 'vector-effect': 'non-scaling-stroke' });
+  const guia = mk('line', { class: 'guia', y1: 0, y2: H, visibility: 'hidden', 'vector-effect': 'non-scaling-stroke' });
+  contenedor.append(svg);
+  const tip = celda('div', '', 'tooltip');
+  tip.hidden = true;
+  contenedor.append(tip);
+  contenedor.onpointermove = (e) => {
+    const r = contenedor.getBoundingClientRect();
+    const i = Math.round(((e.clientX - r.left) / r.width) * (HISTORIA - 1)) - desde;
+    const v = datos[Math.max(0, Math.min(datos.length - 1, i))];
+    if (v === null || v === undefined) return;
+    const px = x(desde + Math.max(0, Math.min(datos.length - 1, i)));
+    guia.setAttribute('x1', px); guia.setAttribute('x2', px); guia.setAttribute('visibility', 'visible');
+    const hace = (datos.length - 1 - Math.max(0, Math.min(datos.length - 1, i))) * INTERVALO_MS / 1000;
+    tip.textContent = `${fmt(v, k.d)} ${k.unidad} · hace ${hace} s`;
+    tip.style.left = `${(px / W) * 100}%`;
+    tip.hidden = false;
+  };
+  contenedor.onpointerleave = () => { tip.hidden = true; guia.setAttribute('visibility', 'hidden'); };
+}
+
+function pintarKpis(t, n) {
+  const cont = $('kpis');
+  if (!cont.children.length) {
+    for (const k of KPIS) {
+      const tile = celda('div', '', 'tile');
+      tile.id = 'kpi-' + k.id;
+      tile.append(celda('div', k.nombre, 'nombre'), celda('div', '', 'valor'), celda('div', '', 'detalle'), celda('div', '', 'spark'));
+      cont.append(tile);
     }
   }
-  actualizar();
-  setInterval(actualizar, 2000);
+  for (const k of KPIS) {
+    const v = t[k.id];
+    const h = historia.get(k.id) ?? [];
+    h.push(v);
+    while (h.length > HISTORIA) h.shift();
+    historia.set(k.id, h);
+    const tile = $('kpi-' + k.id);
+    tile.classList.toggle('sin-datos', v === null);
+    const valor = tile.querySelector('.valor');
+    valor.replaceChildren(document.createTextNode(fmt(v, k.d)));
+    if (v !== null && k.unidad) valor.append(celda('small', k.unidad));
+    const det = tile.querySelector('.detalle');
+    det.textContent = detalleKpi(k.id, t, n);
+    det.title = det.textContent;
+    sparkline(tile.querySelector('.spark'), h, k);
+  }
+}
+
+const COLUMNAS = [
+  ['Conexiones', [['SSE', 'sse', 0], ['WS', 'ws', 0], ['Polling', 'polling', 0], ['Total', 'total', 0]]],
+  ['Mensajes', [['msg/s', 'msg', 1], ['reconex./s', 'rec', 1]]],
+  ['Event Loop (ms)', [['p50', 'eld50', 1], ['p99', 'eld99', 1], ['máx', 'eldMax', 1]]],
+  ['Memoria', [['RSS MB', 'rss', 1], ['KB/conexión', 'kbCon', 1]]],
+  ['Actas', [['por min', 'actas', 0]]],
+  ['Recepción→publicación (ms)', [['p50', 'lat50', 0], ['p99', 'lat99', 0]]],
+  ['', [['edad (s)', 'edad', 1]]],
+];
+
+function pintarTabla(fs, t) {
+  const grupo = document.createElement('tr');
+  grupo.className = 'grupo';
+  grupo.append(celda('th', ''));
+  const tr = document.createElement('tr');
+  tr.append(celda('th', 'Instancia'));
+  for (const [g, cols] of COLUMNAS) {
+    const th = celda('th', g);
+    th.colSpan = cols.length;
+    grupo.append(th);
+    for (const [titulo] of cols) tr.append(celda('th', titulo));
+  }
+  $('cabecera').replaceChildren(grupo, tr);
+  $('filas').replaceChildren(...fs.map((f) => {
+    const fila = document.createElement('tr');
+    fila.append(celda('td', f.nombre));
+    for (const [, cols] of COLUMNAS) for (const [, k, d] of cols) fila.append(celda('td', fmt(f[k], d), k === 'edad' && f.edad > 5 ? 'vieja' : ''));
+    return fila;
+  }));
+  const pie = document.createElement('tr');
+  pie.append(celda('td', `Total (${fs.length})`));
+  const tot = { sse: t.sse, ws: t.ws, polling: t.polling, total: t.con, msg: t.msg, rec: t.rec, eld50: t.eld50, eld99: t.eld,
+                eldMax: t.eldMax, rss: t.rss, kbCon: t.mem, actas: t.actas, lat50: t.lat50, lat99: t.lat, edad: null };
+  for (const [, cols] of COLUMNAS) for (const [, k, d] of cols) pie.append(celda('td', fmt(tot[k], d)));
+  $('pie').replaceChildren(pie);
+}
+
+function pintarExtra(instancias, nombres) {
+  const extra = new Set();
+  for (const n of nombres) for (const k of Object.keys(instancias[n])) if (!BASE.has(k)) extra.add(k);
+  const columnas = [...extra].sort();
+  const tr = document.createElement('tr');
+  tr.append(celda('th', 'Instancia'), ...columnas.map((c) => celda('th', c)));
+  $('cabecera-extra').replaceChildren(tr);
+  $('filas-extra').replaceChildren(...nombres.map((n) => {
+    const fila = document.createElement('tr');
+    fila.append(celda('td', n), ...columnas.map((c) => celda('td', instancias[n][c] ?? '–')));
+    return fila;
+  }));
+}
+
+async function actualizar() {
+  const estado = $('estado');
+  try {
+    const r = await fetch('/api/metricas', { cache: 'no-store' });
+    if (!r.ok) throw new Error(r.status === 503 ? 'Redis no responde' : 'HTTP ' + r.status);
+    const { instancias } = await r.json();
+    const nombres = Object.keys(instancias).sort((a, b) => a.localeCompare(b, 'es', { numeric: true }));
+    const fs = nombres.map((n) => derivar(n, instancias[n]));
+    const t = totales(fs);
+    pintarKpis(t, fs.length);
+    pintarTabla(fs, t);
+    pintarExtra(instancias, nombres);
+    estado.className = '';
+    estado.textContent = `${fs.length} instancias · actualizado ${new Date().toLocaleTimeString('es-CO')}`;
+  } catch (e) {
+    estado.className = 'error';
+    estado.textContent = 'Sin datos: ' + e.message;
+  }
+}
+actualizar();
+setInterval(actualizar, INTERVALO_MS);
 </script>
 </body>
 </html>
