@@ -11,20 +11,40 @@ Requisitos: Node 22+, Docker.
 
 ```bash
 npm install
-npm run build && npm test
+npm run build
 
-# Todo el sistema (nginx :80 + app ×8 + redis)
+# Todo el sistema: redis (AOF) → semilla (un solo uso) → app ×8 → nginx :80
 docker compose up -d --build
 for i in $(seq 16); do curl -s localhost/api/instancia; echo; done   # 8 instancias distintas
 open http://localhost/tablero.html
 
-# Desarrollo de un solo proceso con recarga (necesita un Redis en localhost:6379)
-docker compose up -d redis   # o: docker run -p 6379:6379 redis:7-alpine
+npm test            # las pruebas usan el Redis del compose (dbs 11–15, aisladas de la db 0)
+
+# Desarrollo de un solo proceso con recarga, contra el mismo Redis
 REDIS_URL=redis://localhost:6379 npm run dev   # http://localhost:3000
 ```
 
-Para `npm run dev` contra el Redis de compose, publica el puerto agregando `ports: ["6379:6379"]`
-al servicio `redis` en un `docker-compose.override.yml` local (no se sube).
+### Redis: persistencia, semilla y puerto local
+
+- **Persistencia:** Redis corre con `appendonly yes` y `appendfsync everysec` sobre el volumen
+  `redis-datos`. `docker compose restart redis` conserva los totales. Para empezar una jornada
+  desde cero: `docker compose down -v` (el `-v` borra el volumen).
+- **Semilla automática:** el servicio `semilla` corre `npm run semilla` una vez en cada
+  `docker compose up`. Es idempotente y las instancias `app` esperan a que termine bien
+  (`service_completed_successfully`). A mano: `npm run semilla` (usa `REDIS_URL`, por defecto `localhost:6379`).
+- **`docker-compose.override.yml`** (versionado): `docker compose` lo combina automáticamente con
+  `docker-compose.yml` y publica Redis **solo en `127.0.0.1:6379`**. Así `npm test`, `npm run semilla`,
+  `npm run dev` y `scripts/simulador.ts --redis redis://localhost:6379` llegan a Redis desde el host,
+  sin exponerlo fuera de la máquina (en la EC2 el security group tampoco abre el 6379). Para levantar
+  el sistema sin el override: `docker compose -f docker-compose.yml up -d`.
+
+### Simulador de jornada (Persona 1)
+
+```bash
+npx tsx scripts/simulador.ts --url http://localhost --factor 12 --redis redis://localhost:6379
+```
+
+`--factor 12` comprime la jornada de 2 h a 10 min. Al final compara el total esperado con `tot:dep`.
 
 Scripts: `dev` (tsx watch), `build` (tsc → `dist/`), `start` (`node dist/src/servidor.js`),
 `test` (vitest), `semilla` (carga catálogo, Persona 1).

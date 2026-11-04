@@ -1,0 +1,7 @@
+# docker compose lo combina solo con docker-compose.yml (no hace falta -f).
+# Expone Redis al host ÚNICAMENTE en 127.0.0.1:6379 para `npm test`, `npm run semilla`,
+# `npm run dev` y el simulador con --redis. No es accesible desde fuera de la máquina.
+services:
+  redis:
+    ports:
+      - "127.0.0.1:6379:6379"
