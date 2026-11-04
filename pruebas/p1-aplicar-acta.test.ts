@@ -134,7 +134,8 @@ describe('RF-3 y sección 4.6: eventos', () => {
     const r = (await aplicar(nuevaActa(mesa, 1, VOTOS))) as { seq: string };
     await new Promise((ok) => setTimeout(ok, 100));
     await sub.quit();
-    expect(recibidos.sort()).toEqual([[`pub:dep`, r.seq], [`pub:mun:${mesa.municipio}`, r.seq]].sort());
+    // Pub/sub no está aislado por db: otros archivos de prueba publican en paralelo; filtramos por seq.
+    expect(recibidos.filter(([, m]) => m === r.seq).sort()).toEqual([[`pub:dep`, r.seq], [`pub:mun:${mesa.municipio}`, r.seq]].sort());
   });
 
   it('actualiza ranking en puesto, municipio y departamento', async () => {
