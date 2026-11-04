@@ -203,7 +203,15 @@ Cliente → servidor: `{"t":"tomar","acta":...}`, `{"t":"latido","activo":true|f
 
 Servidor → cliente: `{"t":"cola","items":[...]}`, `{"t":"tomado","acta":...,"auditor":...}`,
 `{"t":"liberado","acta":...}`, `{"t":"resuelto","acta":...}`, `{"t":"presencia","auditores":[...]}`,
-`{"t":"error","motivo":"ya_tomado"|"no_eres_dueno"}`.
+`{"t":"error","motivo":"ya_tomado"|"no_eres_dueno"|"redis_caido"}`.
+
+- `cola` llega al conectar, cuando entra o sale un acta (revisión cada 5 s) y cuando Redis vuelve.
+  Cada item: `{ acta, prioridad, auditor (dueño del lock o null), version, mesa, puesto, municipio,
+  sufragantes, votos, motivo, jurado }`.
+- `redis_caido` (RF-10a): la consola deshabilita las acciones hasta recibir la siguiente `cola`.
+- Un lock que vence sin latido lo detecta cada instancia en su revisión de 5 s y avisa `liberado` a
+  sus propios auditores (sin `PUBLISH`, así no llegan 8 copias y funciona aunque la instancia del
+  dueño haya muerto).
 
 Al **aprobar** un acta dudosa con valores corregidos, P3 la reaplica llamando al mismo `aplicar_acta`
 (versión siguiente, `idem` nuevo) — así toda escritura de acumulados pasa por un solo lugar.

@@ -1,11 +1,11 @@
-// Persona 3 — scripts/dudosas-demo.ts. Redis db 12.
+// Persona 3 — scripts/dudosas-demo.ts. Redis db 11.
 import { Redis } from 'ioredis';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { claves } from '../compartido/claves.js';
 import { CANDIDATOS } from '../compartido/contratos.js';
 import { sembrarDudosas } from '../scripts/dudosas-demo.js';
 
-const URL = process.env.REDIS_TEST_URL_P3 ?? 'redis://localhost:6379/12';
+const URL = process.env.REDIS_TEST_URL_P3_DUDOSAS ?? 'redis://localhost:6379/11';
 let r: Redis;
 
 beforeAll(() => {

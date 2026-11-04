@@ -5,7 +5,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { claves } from '../compartido/claves.js';
 import { liberarLock, renovarLock, tomarLock, valorLock } from '../src/verificacion/bloqueos.js';
 
-const URL = process.env.REDIS_TEST_URL_P3 ?? 'redis://localhost:6379/12';
+const URL = process.env.REDIS_TEST_URL_P3_BLOQUEOS ?? 'redis://localhost:6379/12';
 const ACTA = 'E14-176-0042-03';
 let r: Redis;
 
