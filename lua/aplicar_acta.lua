@@ -1,0 +1,2 @@
+-- aplicar_acta.lua — DUEÑO: Persona 1 (sección 4.5 de docs/DISEÑO.md)
+-- TODO(Persona 1): idem → versión → regla contable → HINCRBY/ZINCRBY 4 niveles → XADD → PUBLISH → SET idem.

@@ -1,0 +1,2 @@
+-- bloqueos.lua — DUEÑO: Persona 3 (RF-7)
+-- TODO(Persona 3): renovar/liberar comparando dueño (GET == mi_valor antes de PEXPIRE/DEL).

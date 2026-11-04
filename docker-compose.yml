@@ -1,0 +1,46 @@
+# Preconteo: nginx (round-robin, sin sticky) → app ×8 → redis (un nodo, sin persistencia).
+services:
+  redis:
+    image: redis:7-alpine
+    command:
+      - redis-server
+      - --save
+      - ""
+      - --appendonly
+      - "no"
+      - --maxmemory
+      - 512mb
+      - --maxmemory-policy
+      - noeviction   # nunca descartar acumulados en silencio
+    restart: unless-stopped
+
+  app:
+    build: .
+    image: preconteo-app
+    # Sin container_name: cada réplica recibe su propio HOSTNAME (id de instancia).
+    deploy:
+      replicas: 8
+    environment:
+      REDIS_URL: redis://redis:6379
+      PORT: "3000"
+    depends_on:
+      - redis
+    ulimits:
+      nofile:
+        soft: 65535
+        hard: 65535
+    restart: unless-stopped
+
+  nginx:
+    image: nginx:alpine
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - app
+    ulimits:
+      nofile:
+        soft: 65535
+        hard: 65535
+    restart: unless-stopped

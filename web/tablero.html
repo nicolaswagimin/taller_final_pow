@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Tablero de métricas</title>
+<style>
+  body { font: 14px/1.4 system-ui, sans-serif; margin: 1.5rem; color: #1a1a1a; }
+  h1 { font-size: 1.25rem; margin: 0 0 .25rem; }
+  #estado { color: #666; margin-bottom: 1rem; }
+  #estado.error { color: #b00020; }
+  table { border-collapse: collapse; font-variant-numeric: tabular-nums; }
+  th, td { padding: .3rem .6rem; border-bottom: 1px solid #e5e5e5; text-align: right; white-space: nowrap; }
+  th:first-child, td:first-child { text-align: left; }
+  thead th { position: sticky; top: 0; background: #fafafa; font-weight: 600; }
+  tbody tr:hover { background: #f5f7fa; }
+</style>
+</head>
+<body>
+<h1>Tablero de métricas</h1>
+<div id="estado">Cargando…</div>
+<table>
+  <thead id="cabecera"></thead>
+  <tbody id="filas"></tbody>
+</table>
+<script>
+  // Columnas fijas primero; cualquier métrica nueva que reporte un módulo aparece después.
+  const FIJAS = ['con_sse', 'con_ws', 'con_polling', 'con_total', 'rss_mb', 'rss_por_conexion_kb',
+                 'eld_p50_ms', 'eld_p99_ms', 'eld_max_ms', 'uptime_s'];
+  const OCULTAS = new Set(['instancia', 'ts']);
+  const estado = document.getElementById('estado');
+  const cabecera = document.getElementById('cabecera');
+  const filas = document.getElementById('filas');
+
+  function celda(tag, texto) { const c = document.createElement(tag); c.textContent = texto; return c; }
+
+  async function actualizar() {
+    try {
+      const r = await fetch('/api/metricas', { cache: 'no-store' });
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      const { instancias } = await r.json();
+      const nombres = Object.keys(instancias).sort();
+      const extra = new Set();
+      for (const n of nombres) for (const k of Object.keys(instancias[n]))
+        if (!FIJAS.includes(k) && !OCULTAS.has(k)) extra.add(k);
+      const columnas = [...FIJAS, ...[...extra].sort()];
+
+      const trh = document.createElement('tr');
+      trh.append(celda('th', 'instancia'), ...columnas.map(c => celda('th', c)), celda('th', 'edad (s)'));
+      cabecera.replaceChildren(trh);
+
+      const ahora = Date.now();
+      filas.replaceChildren(...nombres.map(n => {
+        const m = instancias[n];
+        const tr = document.createElement('tr');
+        tr.append(celda('td', n), ...columnas.map(c => celda('td', m[c] ?? '–')),
+                  celda('td', ((ahora - Number(m.ts)) / 1000).toFixed(1)));
+        return tr;
+      }));
+      estado.className = '';
+      estado.textContent = `${nombres.length} instancias · actualizado ${new Date().toLocaleTimeString()}`;
+    } catch (e) {
+      estado.className = 'error';
+      estado.textContent = 'Sin datos: ' + e.message;
+    }
+  }
+  actualizar();
+  setInterval(actualizar, 2000);
+</script>
+</body>
+</html>
