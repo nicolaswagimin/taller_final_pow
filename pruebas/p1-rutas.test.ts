@@ -98,8 +98,10 @@ describe('POST /api/actas', () => {
     const s = new Date().getSeconds();
     if (s > 55) await new Promise((ok) => setTimeout(ok, (61 - s) * 1000));
     const estados = [];
-    for (let i = 0; i < 31; i++) estados.push((await post(acta)).status);
-    expect(estados.slice(0, 30).every((x) => x !== 429)).toBe(true);
+    for (let i = 0; i < 30; i++) estados.push((await post(acta)).status);
+    // Envíos 1..30: respuestas normales (el primero registra, los demás son duplicadas).
+    expect(estados).toEqual([201, ...Array(29).fill(200)]);
+    // Envío 31 del mismo jurado en el mismo minuto → 429.
     const r = await post(acta);
     expect(r.status).toBe(429);
     expect(await r.json()).toEqual({ estado: 'limite' });
