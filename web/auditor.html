@@ -1,8 +1,502 @@
 <!doctype html>
 <html lang="es">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Consola de auditores</title></head>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Consola de auditores</title>
+<style>
+  :root {
+    --fondo: #f6f7f9; --panel: #ffffff; --texto: #1b1f24; --suave: #5f6b7a; --borde: #e3e6ea;
+    --acento: #1f5fd1; --acento-texto: #ffffff; --ok: #1a7f45; --ok-fondo: #e6f4ec;
+    --alerta: #b42318; --alerta-fondo: #fdecea; --aviso: #8a5a00; --aviso-fondo: #fff4d6;
+    --tomada: #6b4fd8; --tomada-fondo: #efebff; --sombra: 0 1px 2px rgba(16, 24, 40, .06);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --fondo: #0f1216; --panel: #171b21; --texto: #e7eaee; --suave: #98a2b0; --borde: #2a3038;
+      --acento: #5b8def; --acento-texto: #0b0e12; --ok: #4cc38a; --ok-fondo: #12281d;
+      --alerta: #ff6b5e; --alerta-fondo: #34140f; --aviso: #f0b429; --aviso-fondo: #2e2410;
+      --tomada: #a594ff; --tomada-fondo: #221c3d; --sombra: none;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--fondo); color: var(--texto); font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  header { display: flex; flex-wrap: wrap; gap: .75rem 1rem; align-items: center; justify-content: space-between; padding: .9rem 1rem; border-bottom: 1px solid var(--borde); background: var(--panel); }
+  h1 { font-size: 1.05rem; margin: 0; letter-spacing: -.01em; }
+  h2 { font-size: .8rem; margin: 0 0 .6rem; text-transform: uppercase; letter-spacing: .06em; color: var(--suave); font-weight: 600; }
+  .yo { display: flex; gap: .5rem; align-items: center; flex-wrap: wrap; color: var(--suave); }
+  .yo strong { color: var(--texto); font-variant-numeric: tabular-nums; }
+  .pildora { display: inline-flex; align-items: center; gap: .35rem; padding: .15rem .55rem; border-radius: 999px; font-size: .78rem; font-weight: 600; border: 1px solid var(--borde); }
+  .pildora::before { content: ""; width: .5rem; height: .5rem; border-radius: 50%; background: currentColor; }
+  .pildora.ok { color: var(--ok); background: var(--ok-fondo); border-color: transparent; }
+  .pildora.mal { color: var(--alerta); background: var(--alerta-fondo); border-color: transparent; }
+  .pildora.espera { color: var(--aviso); background: var(--aviso-fondo); border-color: transparent; }
+  .banner { padding: .65rem 1rem; font-weight: 600; display: none; }
+  .banner.visible { display: block; }
+  #banner-redis { background: var(--alerta); color: #fff; }
+  #banner-red { background: var(--aviso-fondo); color: var(--aviso); border-bottom: 1px solid var(--borde); }
+  main { display: grid; gap: 1rem; padding: 1rem; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); max-width: 1280px; margin: 0 auto; }
+  @media (max-width: 860px) { main { grid-template-columns: minmax(0, 1fr); } }
+  section { background: var(--panel); border: 1px solid var(--borde); border-radius: 10px; padding: 1rem; box-shadow: var(--sombra); min-width: 0; }
+  #cola-seccion { grid-row: span 2; }
+  @media (max-width: 860px) { #cola-seccion { grid-row: auto; } }
+  .tabla-envoltura { overflow-x: auto; margin: 0 -1rem; padding: 0 1rem; }
+  table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+  th, td { text-align: left; padding: .5rem .5rem; border-bottom: 1px solid var(--borde); white-space: nowrap; }
+  th { font-size: .75rem; color: var(--suave); font-weight: 600; }
+  td.num, th.num { text-align: right; }
+  @media (max-width: 560px) { .col-sec { display: none; } }
+  tr.mia td { background: var(--tomada-fondo); }
+  .acta { font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace; font-size: .85rem; }
+  .chip { display: inline-block; padding: .05rem .45rem; border-radius: 6px; font-size: .78rem; font-weight: 600; }
+  .chip.libre { color: var(--ok); background: var(--ok-fondo); }
+  .chip.tomada { color: var(--tomada); background: var(--tomada-fondo); }
+  button { font: inherit; font-weight: 600; border-radius: 7px; border: 1px solid var(--borde); background: var(--panel); color: var(--texto); padding: .35rem .8rem; cursor: pointer; }
+  button:hover:not(:disabled) { border-color: var(--acento); }
+  button:focus-visible, input:focus-visible { outline: 2px solid var(--acento); outline-offset: 2px; }
+  button:disabled { opacity: .45; cursor: not-allowed; }
+  button.primario { background: var(--acento); color: var(--acento-texto); border-color: transparent; }
+  button.peligro { color: var(--alerta); }
+  .vacio { color: var(--suave); padding: 1.5rem 0; text-align: center; }
+  .caso-cabecera { display: flex; justify-content: space-between; gap: .5rem; align-items: baseline; flex-wrap: wrap; margin-bottom: .5rem; }
+  .motivo { color: var(--suave); margin: 0 0 .75rem; }
+  .votos { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .5rem; margin-bottom: .75rem; }
+  @media (max-width: 420px) { .votos { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+  .votos label { display: flex; flex-direction: column; gap: .2rem; font-size: .75rem; color: var(--suave); font-weight: 600; }
+  .votos input { font: inherit; font-variant-numeric: tabular-nums; padding: .35rem .45rem; border-radius: 6px; border: 1px solid var(--borde); background: var(--fondo); color: var(--texto); width: 100%; }
+  .cuadre { margin: 0 0 .75rem; font-variant-numeric: tabular-nums; }
+  .cuadre.si { color: var(--ok); } .cuadre.no { color: var(--aviso); }
+  .acciones { display: flex; gap: .5rem; flex-wrap: wrap; }
+  .nota { color: var(--suave); font-size: .82rem; margin: .75rem 0 0; }
+  .nota.aviso { color: var(--aviso); }
+  ul.presencia { list-style: none; margin: 0; padding: 0; }
+  ul.presencia li { display: flex; justify-content: space-between; gap: .75rem; padding: .45rem 0; border-bottom: 1px solid var(--borde); flex-wrap: wrap; }
+  ul.presencia li:last-child { border-bottom: 0; }
+  .quien { font-weight: 600; }
+  .donde { color: var(--suave); font-size: .8rem; }
+  #avisos { position: fixed; right: 1rem; bottom: 1rem; display: flex; flex-direction: column; gap: .5rem; z-index: 10; max-width: calc(100vw - 2rem); }
+  .aviso-flotante { background: var(--texto); color: var(--panel); padding: .6rem .9rem; border-radius: 8px; box-shadow: 0 4px 16px rgba(0,0,0,.2); font-weight: 600; }
+  #ingreso { max-width: 360px; margin: 3rem auto; }
+  #ingreso form { display: flex; gap: .5rem; margin-top: .75rem; }
+  #ingreso input { flex: 1; font: inherit; padding: .4rem .6rem; border-radius: 7px; border: 1px solid var(--borde); background: var(--fondo); color: var(--texto); }
+  [hidden] { display: none !important; }
+</style>
+</head>
 <body>
+<header>
   <h1>Consola de auditores</h1>
-  <p>Pendiente — dueño: <strong>Persona 3</strong>.</p>
+  <div class="yo" id="yo" hidden>
+    <span>Auditor <strong id="yo-id"></strong></span>
+    <span id="estado-conexion" class="pildora espera">Conectando…</span>
+    <button type="button" id="cambiar">Cambiar</button>
+  </div>
+</header>
+<div id="banner-redis" class="banner" role="alert">Redis no responde: las acciones están deshabilitadas. La consola se reanuda sola cuando vuelva.</div>
+<div id="banner-red" class="banner" role="status"></div>
+
+<section id="ingreso" hidden>
+  <h2>Ingresar</h2>
+  <p>Escribe tu código de auditor.</p>
+  <form id="form-ingreso">
+    <input id="campo-auditor" required pattern="AUD-[A-Za-z0-9_\-]{1,32}" placeholder="AUD-001" autocomplete="off" aria-label="Código de auditor">
+    <button class="primario">Entrar</button>
+  </form>
+</section>
+
+<main id="consola" hidden>
+  <section id="cola-seccion" aria-labelledby="t-cola">
+    <h2 id="t-cola">Cola de actas dudosas <span id="cola-total"></span></h2>
+    <div class="tabla-envoltura">
+      <table>
+        <thead><tr><th class="num" title="Descuadre: |suma(votos) − sufragantes|">Prioridad</th><th>Acta</th><th class="num col-sec">Mesa</th><th class="num col-sec">Mun.</th><th>Estado</th><th></th></tr></thead>
+        <tbody id="cola-filas"></tbody>
+      </table>
+    </div>
+    <p class="vacio" id="cola-vacia" hidden>No hay actas por verificar.</p>
+  </section>
+
+  <section aria-labelledby="t-caso">
+    <h2 id="t-caso">Mi caso</h2>
+    <div id="caso-vacio" class="vacio">Toma un acta de la cola para revisarla.</div>
+    <div id="caso" hidden>
+      <div class="caso-cabecera">
+        <span class="acta" id="caso-acta"></span>
+        <span class="donde" id="caso-meta"></span>
+      </div>
+      <p class="motivo" id="caso-motivo"></p>
+      <div class="votos" id="caso-votos"></div>
+      <p class="cuadre" id="caso-cuadre"></p>
+      <div class="acciones">
+        <button type="button" class="primario" id="btn-aprobar">Aprobar</button>
+        <button type="button" class="peligro" id="btn-rechazar">Rechazar</button>
+        <button type="button" id="btn-liberar">Liberar</button>
+      </div>
+      <p class="nota" id="caso-nota"></p>
+    </div>
+  </section>
+
+  <section aria-labelledby="t-coord">
+    <h2 id="t-coord">Coordinador · auditores en línea <span id="pres-total"></span></h2>
+    <ul class="presencia" id="presencia"></ul>
+    <p class="vacio" id="pres-vacia" hidden>Nadie en línea.</p>
+  </section>
+</main>
+<div id="avisos" aria-live="polite"></div>
+
+<script>
+'use strict';
+// Protocolo 4.7 de docs/DISEÑO.md. Sin frameworks.
+const CANDIDATOS = ['C1', 'C2', 'C3', 'BLANCO', 'NULO', 'NO_MARCADO'];
+const RE_AUDITOR = /^AUD-[A-Za-z0-9_-]{1,32}$/;
+const LATIDO_MS = 10_000;
+const parametros = new URLSearchParams(location.search);
+// Umbral de inactividad (RF-7): 10 min. ?inactividad=20 (segundos) para la demo.
+const INACTIVIDAD_MS = (Number(parametros.get('inactividad')) || 600) * 1000;
+const LOCK_MS = 30_000;
+
+const $ = (id) => document.getElementById(id);
+const leerLocal = (k) => { try { return localStorage.getItem(k); } catch { return null; } };
+const guardarLocal = (k, v) => { try { localStorage.setItem(k, v); } catch { /* sin almacenamiento */ } };
+
+const estado = {
+  yo: null,
+  ws: null,
+  conectado: false,
+  redisCaido: false,
+  intento: 0,
+  proximoIntento: 0,
+  cola: new Map(),       // acta → item
+  orden: [],             // actas en el orden de prioridad
+  presencia: [],
+  pendiente: null,       // acta que pedí tomar y aún no confirma
+  miActa: null,          // acta cuyo lock tiene ESTA conexión
+  miActaDesde: 0,
+  ultimoRenovado: 0,
+  casoAnterior: null,    // acta que tenía antes de una reconexión (su token murió)
+  ultimaActividad: Date.now(),
+};
+
+// --- Actividad del auditor (teclado o mouse) -------------------------------
+for (const ev of ['keydown', 'pointerdown', 'pointermove', 'wheel', 'touchstart', 'input']) {
+  addEventListener(ev, () => { estado.ultimaActividad = Date.now(); }, { passive: true });
+}
+const activo = () => Date.now() - estado.ultimaActividad < INACTIVIDAD_MS;
+
+// --- Conexión con backoff exponencial y full jitter (RF-10b) ---------------
+function urlWs() {
+  const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+  return `${proto}//${location.host}/ws/verificacion?auditor=${encodeURIComponent(estado.yo)}`;
+}
+
+function conectar() {
+  const ws = new WebSocket(urlWs());
+  estado.ws = ws;
+  ws.onopen = () => {
+    estado.conectado = true;
+    estado.intento = 0;
+    latido(); // aparece en la presencia de inmediato
+    pintar();
+  };
+  ws.onmessage = (e) => {
+    let m;
+    try { m = JSON.parse(e.data); } catch { return; }
+    recibir(m);
+  };
+  ws.onclose = () => {
+    if (estado.ws !== ws) return;
+    estado.conectado = false;
+    // El token del lock vivía en esa conexión: la nueva no puede renovar el caso anterior.
+    if (estado.miActa) estado.casoAnterior = estado.miActa;
+    estado.miActa = null;
+    estado.pendiente = null;
+    const tope = Math.min(30_000, 1000 * 2 ** estado.intento);
+    const espera = Math.random() * tope; // full jitter: random(0, min(30 s, 1 s × 2^intento))
+    estado.intento++;
+    estado.proximoIntento = Date.now() + espera;
+    setTimeout(conectar, espera);
+    pintar();
+  };
+}
+
+function enviar(m) {
+  if (estado.ws && estado.ws.readyState === WebSocket.OPEN) estado.ws.send(JSON.stringify(m));
+}
+
+function latido() {
+  const a = activo();
+  enviar({ t: 'latido', activo: a });
+  if (a && estado.miActa) estado.ultimoRenovado = Date.now();
+}
+setInterval(latido, LATIDO_MS);
+
+// --- Mensajes del servidor ---------------------------------------------------
+function recibir(m) {
+  switch (m.t) {
+    case 'cola': {
+      estado.redisCaido = false; // una cola fresca significa que Redis respondió
+      estado.cola = new Map(m.items.map((i) => [i.acta, i]));
+      estado.orden = m.items.map((i) => i.acta);
+      if (estado.miActa && estado.cola.get(estado.miActa)?.auditor !== estado.yo) soltarCaso();
+      if (estado.casoAnterior && estado.cola.get(estado.casoAnterior)?.auditor !== estado.yo) estado.casoAnterior = null;
+      break;
+    }
+    case 'tomado': {
+      const item = estado.cola.get(m.acta);
+      if (item) item.auditor = m.auditor;
+      if (estado.pendiente === m.acta) {
+        estado.pendiente = null;
+        if (m.auditor === estado.yo) {
+          estado.miActa = m.acta;
+          estado.miActaDesde = Date.now();
+          estado.ultimoRenovado = Date.now();
+          llenarCaso();
+        }
+      } else if (estado.miActa === m.acta && m.auditor !== estado.yo) {
+        soltarCaso('Otro auditor tomó tu caso: tu bloqueo había vencido.');
+      }
+      break;
+    }
+    case 'liberado': {
+      const item = estado.cola.get(m.acta);
+      if (item) item.auditor = null;
+      if (estado.miActa === m.acta) soltarCaso('Tu caso volvió a la cola.');
+      if (estado.casoAnterior === m.acta) estado.casoAnterior = null;
+      break;
+    }
+    case 'resuelto': {
+      estado.cola.delete(m.acta);
+      estado.orden = estado.orden.filter((a) => a !== m.acta);
+      if (estado.pendiente === m.acta) { estado.pendiente = null; avisar('Esa acta ya fue resuelta.'); }
+      if (estado.miActa === m.acta) soltarCaso();
+      break;
+    }
+    case 'presencia':
+      estado.presencia = m.auditores;
+      break;
+    case 'error':
+      if (m.motivo === 'redis_caido') {
+        estado.redisCaido = true;
+        estado.pendiente = null;
+      } else if (m.motivo === 'ya_tomado') {
+        estado.pendiente = null;
+        avisar('Otro auditor la tomó primero.');
+      } else if (m.motivo === 'no_eres_dueno') {
+        soltarCaso('Ya no tienes este caso: el bloqueo venció o lo tomó otro auditor.');
+      }
+      break;
+  }
+  pintar();
+}
+
+function soltarCaso(texto) {
+  estado.miActa = null;
+  if (texto) avisar(texto);
+}
+
+// --- Acciones ----------------------------------------------------------------
+const puedeActuar = () => estado.conectado && !estado.redisCaido;
+
+function tomar(acta) {
+  if (!puedeActuar() || estado.miActa || estado.pendiente) return;
+  estado.pendiente = acta;
+  enviar({ t: 'tomar', acta });
+  pintar();
+}
+
+function votosDelFormulario() {
+  const v = {};
+  for (const c of CANDIDATOS) {
+    const n = Number($('voto-' + c).value);
+    if (!Number.isInteger(n) || n < 0) return null;
+    v[c] = n;
+  }
+  return v;
+}
+
+$('btn-aprobar').onclick = () => {
+  const votos = votosDelFormulario();
+  if (!votos) { avisar('Revisa los votos: deben ser enteros ≥ 0.'); return; }
+  enviar({ t: 'resolver', acta: estado.miActa, decision: 'aprobar', votos });
+};
+$('btn-rechazar').onclick = () => enviar({ t: 'resolver', acta: estado.miActa, decision: 'rechazar' });
+$('btn-liberar').onclick = () => enviar({ t: 'liberar', acta: estado.miActa });
+
+// --- Pintado (una vez por cuadro) --------------------------------------------
+let cuadroPedido = false;
+function pintar() {
+  if (cuadroPedido) return;
+  cuadroPedido = true;
+  requestAnimationFrame(() => { cuadroPedido = false; pintarAhora(); });
+}
+
+function el(tag, props = {}, ...hijos) {
+  const n = document.createElement(tag);
+  Object.assign(n, props);
+  n.append(...hijos);
+  return n;
+}
+
+function hace(ms) {
+  const s = Math.max(0, Math.round(ms / 1000));
+  if (s < 60) return `${s} s`;
+  const min = Math.floor(s / 60);
+  return min < 60 ? `${min} min` : `${Math.floor(min / 60)} h ${min % 60} min`;
+}
+
+function pintarAhora() {
+  // Estado de conexión
+  const pill = $('estado-conexion');
+  const mia = estado.presencia.find((p) => p.auditor === estado.yo);
+  if (!estado.conectado) {
+    pill.className = 'pildora espera';
+    pill.textContent = 'Reconectando…';
+  } else if (estado.redisCaido) {
+    pill.className = 'pildora mal';
+    pill.textContent = 'Redis caído';
+  } else {
+    pill.className = 'pildora ok';
+    pill.textContent = mia ? `En línea · ${mia.instancia}` : 'En línea';
+  }
+  $('banner-redis').classList.toggle('visible', estado.conectado && estado.redisCaido);
+  const red = $('banner-red');
+  red.classList.toggle('visible', !estado.conectado);
+  if (!estado.conectado) {
+    const s = Math.max(0, Math.ceil((estado.proximoIntento - Date.now()) / 1000));
+    red.textContent = `Sin conexión con el servidor. Reintento ${estado.intento} en ${s} s…`;
+  }
+
+  // Cola
+  const filas = estado.orden.map((acta) => {
+    const i = estado.cola.get(acta);
+    const tomadaPor = i.auditor;
+    const esMia = acta === estado.miActa;
+    const chip = tomadaPor
+      ? el('span', { className: 'chip tomada', textContent: esMia ? 'Tú' : tomadaPor, title: `La tiene ${tomadaPor}` })
+      : el('span', { className: 'chip libre', textContent: 'Libre' });
+    const boton = el('button', { type: 'button', textContent: estado.pendiente === acta ? 'Tomando…' : 'Tomar' });
+    boton.disabled = !puedeActuar() || Boolean(tomadaPor) || Boolean(estado.miActa) || Boolean(estado.pendiente);
+    if (tomadaPor && !esMia) boton.title = `${tomadaPor} la está revisando`;
+    boton.onclick = () => tomar(acta);
+    const tr = el('tr', {},
+      el('td', { className: 'num', textContent: i.prioridad }),
+      el('td', { className: 'acta', textContent: acta }),
+      el('td', { className: 'num col-sec', textContent: i.mesa ?? '–' }),
+      el('td', { className: 'num col-sec', textContent: i.municipio ?? '–' }),
+      el('td', {}, chip),
+      el('td', {}, boton));
+    if (esMia) tr.className = 'mia';
+    return tr;
+  });
+  $('cola-filas').replaceChildren(...filas);
+  $('cola-vacia').hidden = filas.length > 0;
+  $('cola-total').textContent = filas.length ? `(${filas.length})` : '';
+
+  // Caso
+  const hayCaso = Boolean(estado.miActa);
+  $('caso').hidden = !hayCaso;
+  $('caso-vacio').hidden = hayCaso;
+  $('caso-vacio').textContent = estado.casoAnterior
+    ? `Te reconectaste: ${estado.casoAnterior} se libera solo en ≤ 30 s y lo podrás volver a tomar.`
+    : 'Toma un acta de la cola para revisarla.';
+  for (const id of ['btn-aprobar', 'btn-rechazar', 'btn-liberar']) $(id).disabled = !puedeActuar();
+  if (hayCaso) {
+    actualizarCuadre();
+    const nota = $('caso-nota');
+    if (!activo()) {
+      nota.className = 'nota aviso';
+      nota.textContent = `Sin actividad: el bloqueo ya no se renueva y el caso vuelve a la cola en ≤ ${LOCK_MS / 1000} s.`;
+    } else {
+      nota.className = 'nota';
+      nota.textContent = `Lo revisas desde hace ${hace(Date.now() - estado.miActaDesde)} · bloqueo renovado hace ${hace(Date.now() - estado.ultimoRenovado)}.`;
+    }
+  }
+
+  // Coordinador
+  const ahora = Date.now();
+  const lista = [...estado.presencia]
+    .sort((a, b) => (a.acta ? 0 : 1) - (b.acta ? 0 : 1) || a.auditor.localeCompare(b.auditor))
+    .map((p) => {
+      const texto = p.acta
+        ? `${p.auditor} trabajando en ${p.acta} desde hace ${hace(ahora - p.desde)}`
+        : `${p.auditor} disponible · en línea desde hace ${hace(ahora - p.desde)}`;
+      return el('li', {},
+        el('span', { className: 'quien', textContent: texto + (p.auditor === estado.yo ? ' (tú)' : '') }),
+        el('span', { className: 'donde', textContent: p.instancia }));
+    });
+  $('presencia').replaceChildren(...lista);
+  $('pres-vacia').hidden = lista.length > 0;
+  $('pres-total').textContent = lista.length ? `(${lista.length})` : '';
+}
+setInterval(pintar, 1000); // "desde hace…" y la cuenta regresiva de reconexión
+
+function llenarCaso() {
+  const i = estado.cola.get(estado.miActa);
+  $('caso-acta').textContent = estado.miActa;
+  $('caso-meta').textContent = i ? `mesa ${i.mesa ?? '–'} · municipio ${i.municipio ?? '–'} · v${i.version ?? '?'}` : '';
+  $('caso-motivo').textContent = i?.motivo || 'Acta dudosa.';
+  const contenedor = $('caso-votos');
+  contenedor.replaceChildren(...CANDIDATOS.map((c) => {
+    const input = el('input', { id: 'voto-' + c, type: 'number', min: '0', step: '1', inputMode: 'numeric', value: i?.votos?.[c] ?? 0 });
+    input.oninput = actualizarCuadre;
+    return el('label', {}, c, input);
+  }));
+}
+
+function actualizarCuadre() {
+  const i = estado.cola.get(estado.miActa);
+  const v = votosDelFormulario();
+  const p = $('caso-cuadre');
+  if (!v) { p.className = 'cuadre no'; p.textContent = 'Votos inválidos.'; return; }
+  const suma = CANDIDATOS.reduce((a, c) => a + v[c], 0);
+  const suf = i?.sufragantes;
+  if (suf == null) { p.className = 'cuadre'; p.textContent = `Suma: ${suma}`; return; }
+  const cuadra = suma === suf;
+  p.className = 'cuadre ' + (cuadra ? 'si' : 'no');
+  p.textContent = cuadra
+    ? `Suma ${suma} = ${suf} sufragantes. Cuadra.`
+    : `Suma ${suma} ≠ ${suf} sufragantes (diferencia ${suma - suf}). Al aprobar, cuentan los votos que dejes aquí.`;
+}
+
+function avisar(texto) {
+  const n = el('div', { className: 'aviso-flotante', textContent: texto });
+  $('avisos').append(n);
+  setTimeout(() => n.remove(), 4000);
+}
+
+// --- Ingreso -------------------------------------------------------------------
+function iniciar(auditor) {
+  estado.yo = auditor;
+  guardarLocal('auditor', auditor);
+  const p = new URLSearchParams(location.search);
+  p.set('auditor', auditor);
+  history.replaceState(null, '', `${location.pathname}?${p}`);
+  $('yo-id').textContent = auditor;
+  $('yo').hidden = false;
+  $('ingreso').hidden = true;
+  $('consola').hidden = false;
+  conectar();
+  pintar();
+}
+
+$('form-ingreso').onsubmit = (e) => {
+  e.preventDefault();
+  const v = $('campo-auditor').value.trim().toUpperCase().replace(/^AUD-/, 'AUD-');
+  if (RE_AUDITOR.test(v)) iniciar(v);
+};
+$('cambiar').onclick = () => {
+  const p = new URLSearchParams(location.search);
+  p.delete('auditor');
+  location.search = p.toString();
+};
+
+const inicial = parametros.get('auditor');
+if (inicial && RE_AUDITOR.test(inicial)) {
+  iniciar(inicial);
+} else {
+  $('ingreso').hidden = false;
+  $('campo-auditor').value = leerLocal('auditor') || '';
+  $('campo-auditor').focus();
+}
+</script>
 </body>
 </html>
