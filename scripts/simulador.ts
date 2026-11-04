@@ -111,18 +111,24 @@ export function planificar({ semilla = 1 }: { semilla?: number } = {}): Plan {
       // Fuera de orden: v3 llega ANTES que v2 (v2 → obsoleta)
       const v2 = corregir(v1);
       const v3 = corregir(v2);
-      envios.push({ t: t1, tipo: 'original', acta: acta(m, 1, v1) });
-      envios.push({ t: t1 + entre(60, 300), tipo: 'correccion', acta: acta(m, 3, v3) });
-      envios.push({ t: t1 + entre(300, 600), tipo: 'correccion', acta: acta(m, 2, v2) });
+      envios.push(
+        { t: t1, tipo: 'original', acta: acta(m, 1, v1) },
+        { t: t1 + entre(60, 300), tipo: 'correccion', acta: acta(m, 3, v3) },
+        { t: t1 + entre(300, 600), tipo: 'correccion', acta: acta(m, 2, v2) },
+      );
     } else if (soloV2.has(i)) {
       const v2 = corregir(v1);
       if (azar() < 0.5) {
         // Fuera de orden: la corrección v2 llega antes que la v1 (v1 → obsoleta)
-        envios.push({ t: t1, tipo: 'correccion', acta: acta(m, 2, v2) });
-        envios.push({ t: t1 + entre(60, 600), tipo: 'original', acta: acta(m, 1, v1) });
+        envios.push(
+          { t: t1, tipo: 'correccion', acta: acta(m, 2, v2) },
+          { t: t1 + entre(60, 600), tipo: 'original', acta: acta(m, 1, v1) },
+        );
       } else {
-        envios.push({ t: t1, tipo: 'original', acta: acta(m, 1, v1) });
-        envios.push({ t: t1 + entre(60, 600), tipo: 'correccion', acta: acta(m, 2, v2) });
+        envios.push(
+          { t: t1, tipo: 'original', acta: acta(m, 1, v1) },
+          { t: t1 + entre(60, 600), tipo: 'correccion', acta: acta(m, 2, v2) },
+        );
       }
     } else {
       envios.push({ t: t1, tipo: 'original', acta: acta(m, 1, v1) });
@@ -170,7 +176,7 @@ export function totalEsperado(actas: Acta[]): Totales {
 // Ejecución
 // ---------------------------------------------------------------------------
 
-const DEFINITIVOS: EstadoPostActa[] = ['registrada', 'duplicada', 'obsoleta', 'dudosa', 'invalida'];
+const DEFINITIVOS = new Set<EstadoPostActa>(['registrada', 'duplicada', 'obsoleta', 'dudosa', 'invalida']);
 const dormir = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 async function enviar(url: string, a: Acta, intentosMax = 12): Promise<{ estado: EstadoPostActa | 'fallo'; intentos: number }> {
@@ -183,7 +189,7 @@ async function enviar(url: string, a: Acta, intentosMax = 12): Promise<{ estado:
         signal: AbortSignal.timeout(15_000),
       });
       const cuerpo = (await r.json().catch(() => ({}))) as { estado?: EstadoPostActa };
-      if (cuerpo.estado && DEFINITIVOS.includes(cuerpo.estado)) return { estado: cuerpo.estado, intentos: intento + 1 };
+      if (cuerpo.estado && DEFINITIVOS.has(cuerpo.estado)) return { estado: cuerpo.estado, intentos: intento + 1 };
       if (r.status === 429) {
         await dormir(Number(r.headers.get('retry-after') ?? 5) * 1000);
         continue;
@@ -196,7 +202,15 @@ async function enviar(url: string, a: Acta, intentosMax = 12): Promise<{ estado:
   return { estado: 'fallo', intentos: intentosMax };
 }
 
-async function main(): Promise<void> {
+interface Opciones {
+  url: string;
+  factor: number;
+  semilla: number;
+  redis?: string;
+  json: boolean;
+}
+
+function leerOpciones(): Opciones {
   const { values } = parseArgs({
     options: {
       url: { type: 'string', default: process.env.URL_BASE ?? 'http://localhost' },
@@ -206,68 +220,86 @@ async function main(): Promise<void> {
       json: { type: 'boolean', default: false },
     },
   });
-  const url = values.url!.replace(/\/$/, '');
   const factor = Number(values.factor);
-  if (!(factor > 0)) throw new Error('--factor debe ser > 0');
-  const plan = planificar({ semilla: Number(values.semilla) });
-  const log = (...xs: unknown[]) => !values.json && console.log(...xs);
+  if (!Number.isFinite(factor) || factor <= 0) throw new Error('--factor debe ser un número > 0');
+  return { url: values.url!.replace(/\/$/, ''), factor, semilla: Number(values.semilla), redis: values.redis, json: values.json! };
+}
 
-  let redis: import('ioredis').Redis | undefined;
-  if (values.redis) {
-    const { Redis } = await import('ioredis');
-    redis = new Redis(values.redis, { maxRetriesPerRequest: 2 });
-    if (await redis.exists('tot:dep')) {
-      console.warn('AVISO: tot:dep ya tiene datos; la comparación solo vale si la jornada empieza en cero.');
-    }
+/** Lanza las ráfagas a su hora (t / factor) sin esperar a que termine la anterior. */
+async function ejecutar(plan: Plan, o: Opciones, log: (...xs: unknown[]) => void): Promise<Record<string, number>> {
+  const conteo: Record<string, number> = {};
+  const inicio = Date.now();
+  const enCurso: Promise<void>[] = [];
+  for (const [i, raf] of plan.rafagas.entries()) {
+    // Espera secuencial a propósito: marca el ritmo de la jornada comprimida.
+    await dormir(inicio + (raf.t / o.factor) * 1000 - Date.now());
+    const lote = Promise.all(raf.envios.map(async (e) => {
+      const r = await enviar(o.url, e.acta);
+      conteo[r.estado] = (conteo[r.estado] ?? 0) + 1;
+    }));
+    enCurso.push(lote.then(() => {
+      log(`  ráfaga ${String(i + 1).padStart(3)}/${plan.rafagas.length} · t=${(raf.t / 60).toFixed(1).padStart(5)} min de jornada · ${raf.envios.length} envíos`);
+    }));
   }
+  await Promise.all(enCurso);
+  return conteo;
+}
 
-  log(`Simulador → ${url} · factor ×${factor} (jornada de ${(DURACION_JORNADA_S / factor / 60).toFixed(1)} min) · semilla ${values.semilla}`);
+async function compararConRedis(url: string, esperado: Totales, log: (...xs: unknown[]) => void) {
+  const { Redis } = await import('ioredis');
+  const redis = new Redis(url, { maxRetriesPerRequest: 2 });
+  try {
+    const h = await redis.hgetall('tot:dep');
+    const real = Object.fromEntries(Object.keys(esperado).map((k) => [k, Number(h[k] ?? 0)]));
+    const iguales = Object.entries(esperado).every(([k, v]) => real[k] === v);
+    log(`\nComparación con tot:dep en ${url}:`);
+    for (const [k, esp] of Object.entries(esperado)) {
+      log(`  ${k.padEnd(12)} esperado ${String(esp).padStart(8)}  redis ${String(real[k]).padStart(8)}  ${esp === real[k] ? 'OK' : 'DIFERENTE'}`);
+    }
+    log(iguales ? '\nRESULTADO: idénticos' : '\nRESULTADO: DIFERENCIAS');
+    return { real, iguales };
+  } finally {
+    redis.disconnect();
+  }
+}
+
+async function avisarSiHayDatos(url: string): Promise<void> {
+  const { Redis } = await import('ioredis');
+  const redis = new Redis(url, { maxRetriesPerRequest: 2 });
+  if (await redis.exists('tot:dep')) {
+    console.warn('AVISO: tot:dep ya tiene datos; la comparación solo vale si la jornada empieza en cero.');
+  }
+  redis.disconnect();
+}
+
+async function main(): Promise<void> {
+  const o = leerOpciones();
+  const plan = planificar({ semilla: o.semilla });
+  const log = (...xs: unknown[]) => !o.json && console.log(...xs);
+  if (o.redis) await avisarSiHayDatos(o.redis);
+
+  log(`Simulador → ${o.url} · factor ×${o.factor} (jornada de ${(DURACION_JORNADA_S / o.factor / 60).toFixed(1)} min) · semilla ${o.semilla}`);
   log(`Plan: ${plan.envios.length} envíos en ${plan.rafagas.length} ráfagas de ≤300 · ${plan.resumen.dudosas} dudosas · ` +
       `${plan.resumen.correcciones} correcciones · ${plan.resumen.reenvios} reenvíos`);
 
-  const conteo: Record<string, number> = {};
-  const inicio = Date.now();
-  const pendientes: Promise<void>[] = [];
-  for (const [i, raf] of plan.rafagas.entries()) {
-    const espera = inicio + (raf.t / factor) * 1000 - Date.now();
-    if (espera > 0) await dormir(espera);
-    pendientes.push(
-      Promise.all(raf.envios.map(async (e) => {
-        const r = await enviar(url, e.acta);
-        conteo[r.estado] = (conteo[r.estado] ?? 0) + 1;
-      })).then(() => {
-        log(`  ráfaga ${String(i + 1).padStart(3)}/${plan.rafagas.length} · t=${(raf.t / 60).toFixed(1).padStart(5)} min de jornada · ${raf.envios.length} envíos`);
-      }),
-    );
-  }
-  await Promise.all(pendientes);
-  const seg = (Date.now() - inicio) / 1000;
+  const t0 = Date.now();
+  const conteo = await ejecutar(plan, o, log);
+  const seg = (Date.now() - t0) / 1000;
 
   log(`\nRespuestas (${seg.toFixed(1)} s):`, JSON.stringify(conteo));
   log('\nTotal esperado por candidato (calculado localmente):');
   for (const [c, v] of Object.entries(plan.esperado)) log(`  ${c.padEnd(12)} ${v}`);
 
-  let iguales: boolean | undefined;
-  let real: Record<string, number> | undefined;
-  if (redis) {
-    const h = await redis.hgetall('tot:dep');
-    real = Object.fromEntries(Object.keys(plan.esperado).map((k) => [k, Number(h[k] ?? 0)]));
-    iguales = Object.keys(plan.esperado).every((k) => real![k] === plan.esperado[k as keyof Totales]);
-    log(`\nComparación con tot:dep en ${values.redis}:`);
-    for (const k of Object.keys(plan.esperado)) {
-      const esp = plan.esperado[k as keyof Totales];
-      log(`  ${k.padEnd(12)} esperado ${String(esp).padStart(8)}  redis ${String(real[k]).padStart(8)}  ${esp === real[k] ? 'OK' : 'DIFERENTE'}`);
-    }
-    log(iguales ? '\nRESULTADO: idénticos' : '\nRESULTADO: DIFERENCIAS');
-    redis.disconnect();
-  }
-  if (values.json) console.log(JSON.stringify({ segundos: seg, respuestas: conteo, esperado: plan.esperado, tot_dep: real, iguales }));
-  if (conteo.fallo || iguales === false) process.exitCode = 1;
+  const cmp = o.redis ? await compararConRedis(o.redis, plan.esperado, log) : undefined;
+  if (o.json) console.log(JSON.stringify({ segundos: seg, respuestas: conteo, esperado: plan.esperado, tot_dep: cmp?.real, iguales: cmp?.iguales }));
+  if (conteo.fallo || cmp?.iguales === false) process.exitCode = 1;
 }
 
 if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
-  main().catch((e) => {
+  try {
+    await main();
+  } catch (e) {
     console.error(e);
     process.exitCode = 1;
-  });
+  }
 }

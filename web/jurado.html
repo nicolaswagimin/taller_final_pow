@@ -49,7 +49,7 @@
 <body>
 <header>
   <h1>Transmisión de actas E-14</h1>
-  <span id="red" role="status" aria-live="polite">en línea</span>
+  <output id="red" aria-live="polite">en línea</output>
 </header>
 <main>
   <section aria-labelledby="t-form">
@@ -160,7 +160,7 @@ for (const c of CANDIDATOS) {
 form.jurado.value = localStorage.getItem(CLAVE_JURADO) || '';
 
 function leerFormulario() {
-  const n = (k) => form[k].value === '' ? NaN : Number(form[k].value);
+  const n = (k) => form[k].value === '' ? Number.NaN : Number(form[k].value);
   const votos = Object.fromEntries(CANDIDATOS.map((c) => [c, n('v_' + c)]));
   return { jurado: form.jurado.value.trim(), municipio: n('municipio'), puesto: n('puesto'), mesa: n('mesa'),
            numero: n('numero'), version: n('version'), sufragantes: n('sufragantes'), votos };
@@ -230,79 +230,102 @@ function reprogramar(it, ms, nota) {
   it.nota = `${nota} · reintento ${hora(it.siguiente)}`;
 }
 
+// Respuestas definitivas: clave "HTTP:estado" → estado local + nota. Todas son 2xx/400 con cuerpo.
+const DEFINITIVAS = {
+  '201:registrada': (c) => ['contada', `enviada ${hora(Date.now())} · seq ${c.seq}`],
+  '200:duplicada': (c) => ['duplicada', `enviada · el servidor ya la tenía: ${c.motivo ? 'estaba como dudosa' : `ya contaba (seq ${c.seq ?? '—'})`}`],
+  '200:obsoleta': (c) => ['obsoleta', `enviada · ya hay una versión mayor (v${c.version_vigente})`],
+  '202:dudosa': (c) => ['dudosa', `enviada · en verificación: ${c.motivo}`],
+  '400:invalida': (c) => ['invalida', `rechazada por el servidor: ${c.motivo || 'datos inválidos'}`],
+};
+// Sin respuesta definitiva: el acta sigue pendiente y se reintenta con backoff (full jitter).
+const NOTA_REINTENTO = {
+  503: () => 'servidor sin datos disponibles (503), sigue pendiente',
+  0: () => (navigator.onLine ? 'sin respuesta, sigue pendiente' : 'sin conexión, sigue pendiente'),
+};
+
 function aplicarRespuesta(it, { status, cuerpo, retryAfter }) {
-  const e = cuerpo && cuerpo.estado;
-  if (status === 201 && e === 'registrada') {
-    Object.assign(it, { estado: 'contada', respuesta: cuerpo, nota: `enviada ${hora(Date.now())} · seq ${cuerpo.seq}` });
-  } else if (status === 200 && e === 'duplicada') {
-    const previa = cuerpo.motivo ? 'estaba como dudosa' : `ya contaba (seq ${cuerpo.seq ?? '—'})`;
-    Object.assign(it, { estado: 'duplicada', respuesta: cuerpo, nota: `enviada · el servidor ya la tenía: ${previa}` });
-  } else if (status === 200 && e === 'obsoleta') {
-    Object.assign(it, { estado: 'obsoleta', respuesta: cuerpo, nota: `enviada · ya hay una versión mayor (v${cuerpo.version_vigente})` });
-  } else if (status === 202 && e === 'dudosa') {
-    Object.assign(it, { estado: 'dudosa', respuesta: cuerpo, nota: `enviada · en verificación: ${cuerpo.motivo}` });
+  const definitiva = cuerpo && DEFINITIVAS[`${status}:${cuerpo.estado}`];
+  if (definitiva) {
+    const [estado, nota] = definitiva(cuerpo);
+    Object.assign(it, { estado, nota, respuesta: cuerpo });
   } else if (status === 400) {
-    Object.assign(it, { estado: 'invalida', respuesta: cuerpo, nota: `rechazada por el servidor: ${(cuerpo && cuerpo.motivo) || 'datos inválidos'}` });
+    Object.assign(it, { estado: 'invalida', respuesta: cuerpo, nota: 'rechazada por el servidor: datos inválidos' });
   } else if (status === 429) {
     const ms = (Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter : 30) * 1000;
     reprogramar(it, ms, 'límite de envíos por minuto');
     it.intentos -= 1; // el 429 no cuenta para el backoff
-  } else if (status === 503) {
-    reprogramar(it, esperaConJitter(it.intentos), 'servidor sin datos disponibles (503), sigue pendiente');
-  } else if (status === 0) {
-    reprogramar(it, esperaConJitter(it.intentos), navigator.onLine ? 'sin respuesta, sigue pendiente' : 'sin conexión, sigue pendiente');
   } else {
-    reprogramar(it, esperaConJitter(it.intentos), `respuesta inesperada (${status}), sigue pendiente`);
+    const nota = NOTA_REINTENTO[status] ? NOTA_REINTENTO[status]() : `respuesta inesperada (${status}), sigue pendiente`;
+    reprogramar(it, esperaConJitter(it.intentos), nota);
   }
 }
 
-async function procesar() {
-  if (procesando) return;
-  procesando = true;
-  clearTimeout(temporizador);
-  try {
-    for (;;) {
-      const ahora = Date.now();
-      const it = cola.find((x) => x.estado === 'pendiente' && x.siguiente <= ahora && !enVuelo.has(x.idem));
-      if (!it) break;
-      if (!navigator.onLine) break; // se reanuda con el evento 'online'
-      enVuelo.add(it.idem);
-      render();
-      const r = await enviar(it);
-      enVuelo.delete(it.idem);
-      aplicarRespuesta(it, r);
-      guardar();
-      render();
-    }
-  } finally {
-    procesando = false;
-  }
+function siguientePendiente() {
+  const ahora = Date.now();
+  return cola.find((x) => x.estado === 'pendiente' && x.siguiente <= ahora && !enVuelo.has(x.idem));
+}
+
+async function enviarUno(it) {
+  enVuelo.add(it.idem);
+  render();
+  const r = await enviar(it);
+  enVuelo.delete(it.idem);
+  aplicarRespuesta(it, r);
+  guardar();
+  render();
+}
+
+function programarSiguiente() {
   const prox = cola.filter((x) => x.estado === 'pendiente').map((x) => x.siguiente);
   if (prox.length && navigator.onLine) {
     temporizador = setTimeout(procesar, Math.max(0, Math.min(...prox) - Date.now()));
   }
 }
 
+// Envía la cola de a una acta por vez (en orden): no satura una red móvil mala ni el límite de tasa.
+async function procesar() {
+  if (procesando) return;
+  procesando = true;
+  clearTimeout(temporizador);
+  try {
+    let it = siguientePendiente();
+    while (it && navigator.onLine) { // sin red se reanuda con el evento 'online'
+      await enviarUno(it);
+      it = siguientePendiente();
+    }
+  } finally {
+    procesando = false;
+  }
+  programarSiguiente();
+}
+
 // ---------- polling de dudosas (cada 15 s) ----------
+function actualizarDesdeEstado(it, s) {
+  const mia = it.acta.version;
+  if (s.estado === 'contada' && s.version_vigente >= mia) {
+    it.estado = 'contada';
+    it.nota = s.version_vigente > mia
+      ? `verificada: cuenta la versión ${s.version_vigente} corregida por un auditor` : 'verificada: cuenta';
+  } else if (s.estado === 'rechazada') {
+    it.estado = 'rechazada';
+    it.nota = `rechazada en verificación${s.motivo ? ': ' + s.motivo : ''}`;
+  } else if (s.version_vigente > mia) {
+    it.nota = `en verificación (vigente: v${s.version_vigente})`;
+  }
+}
+
+async function consultarUna(it) {
+  try {
+    const r = await fetch(`/api/actas/${encodeURIComponent(it.acta.acta)}/estado`, { cache: 'no-store' });
+    if (r.ok) actualizarDesdeEstado(it, await r.json());
+  } catch { /* se reintenta en 15 s */ }
+}
+
+// De a una por vez a propósito: pocas peticiones simultáneas desde un celular con mala señal.
 async function consultarDudosas() {
   if (!navigator.onLine) return;
-  for (const it of cola.filter(A_CONSULTAR)) {
-    try {
-      const r = await fetch(`/api/actas/${encodeURIComponent(it.acta.acta)}/estado`, { cache: 'no-store' });
-      if (!r.ok) continue;
-      const s = await r.json();
-      if (s.estado === 'contada' && s.version_vigente >= it.acta.version) {
-        it.estado = 'contada';
-        it.nota = s.version_vigente > it.acta.version
-          ? `verificada: cuenta la versión ${s.version_vigente} corregida por un auditor` : 'verificada: cuenta';
-      } else if (s.estado === 'rechazada') {
-        it.estado = 'rechazada';
-        it.nota = `rechazada en verificación${s.motivo ? ': ' + s.motivo : ''}`;
-      } else if (s.version_vigente > it.acta.version) {
-        it.nota = `en verificación (vigente: v${s.version_vigente})`;
-      }
-    } catch { /* se reintenta en 15 s */ }
-  }
+  for (const it of cola.filter(A_CONSULTAR)) await consultarUna(it);
   guardar();
   render();
 }
