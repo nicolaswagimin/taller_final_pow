@@ -1,0 +1,34 @@
+# Dueños por carpeta (docs/ROLES.md, sección 3 de docs/DISEÑO.md).
+# La última regla que coincide gana. Basta con la aprobación de uno de los dueños listados.
+# P1 = @nicolaswagimin · P2 = @DMaTeoG · P3 = @Jhoan-Pd
+
+# Por defecto (package.json, tsconfig, pruebas/, .github/, etc.): los tres
+*                       @nicolaswagimin @DMaTeoG @Jhoan-Pd
+
+# Compartido: los tres
+/docs/                  @nicolaswagimin @DMaTeoG @Jhoan-Pd
+/compartido/            @nicolaswagimin @DMaTeoG @Jhoan-Pd
+
+# Persona 1 — Jurados y acumulados
+/src/jurados/           @nicolaswagimin
+/lua/aplicar_acta.lua   @nicolaswagimin
+/web/jurado.html        @nicolaswagimin
+/scripts/               @nicolaswagimin
+
+# Persona 2 — Público y difusión
+/src/publico/           @DMaTeoG
+/web/publico.html       @DMaTeoG
+/carga/                 @DMaTeoG
+
+# Persona 3 — Auditores y operación
+/src/servidor.ts        @Jhoan-Pd
+/src/upgrade.ts         @Jhoan-Pd
+/src/verificacion/      @Jhoan-Pd
+/src/metricas/          @Jhoan-Pd
+/lua/bloqueos.lua       @Jhoan-Pd
+/web/auditor.html       @Jhoan-Pd
+/web/tablero.html       @Jhoan-Pd
+/docker-compose.yml     @Jhoan-Pd
+/Dockerfile             @Jhoan-Pd
+/nginx/                 @Jhoan-Pd
+/deploy/                @Jhoan-Pd

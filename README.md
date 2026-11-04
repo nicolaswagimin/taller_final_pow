@@ -31,6 +31,9 @@ Scripts: `dev` (tsx watch), `build` (tsc → `dist/`), `start` (`node dist/src/s
 
 ## Dueños (sección 3)
 
+Personas, requisitos, pruebas y prompts de arranque: **[docs/ROLES.md](docs/ROLES.md)**.
+P1 = @nicolaswagimin · P2 = @DMaTeoG · P3 = @Jhoan-Pd.
+
 | Ruta | Dueño |
 |---|---|
 | `docs/DISEÑO.md` | todos (cambios por PR) |
